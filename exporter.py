@@ -1,6 +1,7 @@
 import time
 import os
 import signal
+import subprocess
 from prometheus_client import start_http_server
 from prometheus_client import Gauge
 import pyinotify
@@ -21,9 +22,13 @@ xlog_ready_gauge = Gauge('walg_missing_remote_wal_segment_at_end',
                          'Xlog ready for upload')
 xlog_done_gauge = Gauge('walg_total_remote_wal_count',
                          'Xlog uploaded')
+exception_gauge = Gauge('walg_exception',
+                        'Wal-g exception: 1 for xlog error and'
+                        ' 2 for basebackup error')
 # g.set(4.2)   # Set to a given value
 
-
+basebackup_exception = 0
+xlog_exception = 0
 # Base backup update
 # ------------------
 
@@ -34,6 +39,14 @@ def update_basebackup(*unused):
         and update metrics about basebackups
     """
     print('Updating basebackups metrics...')
+    try:
+        res = subprocess.run(["wal-g", "backup-list", "--detail", "--json"], capture_output=True, check=True)
+        print(res.stdout)
+        basebackup_exception = 0
+    except subprocess.CalledProcessError as e:
+        print(e)
+        basebackup_exception = 2
+    exception_gauge.set(basebackup_exception + xlog_exception)
 
 
 signal.signal(signal.SIGHUP, update_basebackup)
@@ -58,12 +71,14 @@ def update_wal(*unused):
             # search for xlog waiting for upload
             elif f[-6:len(f)] == '.ready':
                 xlog_ready = xlog_ready + 1
+        xlog_exception = 0
     except FileNotFoundError:
         print("Oups....")
-        pass
+        xlog_exception = 1
     last_xlog_gauge.set(last_upload)
     xlog_ready_gauge.set(xlog_ready)
     xlog_done_gauge.set(xlog_done)
+    exception_gauge.set(basebackup_exception + xlog_exception)
 
 
 # Start inotify on the archive_status directory
