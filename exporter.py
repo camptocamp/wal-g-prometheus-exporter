@@ -2,6 +2,8 @@ import time
 import os
 import signal
 import subprocess
+import json
+import datetime
 from prometheus_client import start_http_server
 from prometheus_client import Gauge
 import pyinotify
@@ -10,13 +12,16 @@ import pyinotify
 # ---------------
 
 # Declare metrics
+basebackup_count_gauge = Gauge('walg_basebackup_count',
+                         'Remote Basebackups count')
 basebackup_gauge = Gauge('walg_basebackup',
-                         'Remote Basebackups')
+                         'Remote Basebackups',
+                         ['start_wal_segment'])
 last_xlog_gauge = Gauge('walg_last_xlog_upload',
                         'Last upload of incremental backup', )
 last_basebackup_gauge = Gauge('walg_last_basebackup_upload',
                               'Last upload of full backup')
-oldest_basebackup_gauge = Gauge('walg_oldest_basebackup_upload',
+oldest_basebackup_gauge = Gauge('walg_oldest_basebackup',
                                 'oldest full backup')
 xlog_ready_gauge = Gauge('walg_missing_remote_wal_segment_at_end',
                          'Xlog ready for upload')
@@ -25,12 +30,28 @@ xlog_done_gauge = Gauge('walg_total_remote_wal_count',
 exception_gauge = Gauge('walg_exception',
                         'Wal-g exception: 1 for xlog error and'
                         ' 2 for basebackup error')
+# TODO:
+# * walg_xlogs_since_basebackup
+# * walg_valid_basebackup_count
+# * walg_useless_remote_wal_segment
+# * walg_oldest_valid_basebackup
+# * walg_continious_wal
 # g.set(4.2)   # Set to a given value
 
 basebackup_exception = 0
 xlog_exception = 0
 # Base backup update
 # ------------------
+
+
+def format_date(bb):
+    bb['time'] = datetime.datetime.strptime(bb['time'],
+                                         bb['date_fmt'])
+    bb['start_time'] = datetime.datetime.strptime(bb['start_time'],
+                                               bb['date_fmt'])
+    bb['finish_time'] = datetime.datetime.strptime(bb['finish_time'],
+                                                bb['date_fmt'])
+    return bb
 
 
 def update_basebackup(*unused):
@@ -40,12 +61,22 @@ def update_basebackup(*unused):
     """
     print('Updating basebackups metrics...')
     try:
-        res = subprocess.run(["wal-g", "backup-list", "--detail", "--json"], capture_output=True, check=True)
-        print(res.stdout)
+        res = subprocess.run(["wal-g", "backup-list", "--detail", "--json"],
+                             capture_output=True, check=True)
+        bbs = list(map(format_date, json.loads(res.stdout)))
+        bbs.sort(key=lambda bb: bb['time'])
+        print(bbs)
+        for bb in bbs:
+            (basebackup_gauge.labels(bb['wal_file_name'])
+             .set(bb['time'].timestamp()))
+        if len(bbs) > 0:
+            oldest_basebackup_gauge.set(bbs[0]['time'].timestamp())
+            last_basebackup_gauge.set(bbs[len(bbs) - 1]['time'].timestamp())
         basebackup_exception = 0
     except subprocess.CalledProcessError as e:
         print(e)
         basebackup_exception = 2
+    basebackup_count_gauge.set(len(bbs))
     exception_gauge.set(basebackup_exception + xlog_exception)
 
 
