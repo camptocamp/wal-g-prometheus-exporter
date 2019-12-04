@@ -17,10 +17,9 @@ basebackup_count_gauge = Gauge('walg_basebackup_count',
 basebackup_gauge = Gauge('walg_basebackup',
                          'Remote Basebackups',
                          ['start_wal_segment'])
-last_xlog_gauge = Gauge('walg_last_xlog_upload',
-                        'Last upload of incremental backup', )
-last_basebackup_gauge = Gauge('walg_last_basebackup_upload',
-                              'Last upload of full backup')
+last_upload_gauge = Gauge('walg_last_upload',
+                        'Last upload of incremental or full backup',
+                        ['type'])
 oldest_basebackup_gauge = Gauge('walg_oldest_basebackup',
                                 'oldest full backup')
 xlog_ready_gauge = Gauge('walg_missing_remote_wal_segment_at_end',
@@ -71,7 +70,8 @@ def update_basebackup(*unused):
              .set(bb['time'].timestamp()))
         if len(bbs) > 0:
             oldest_basebackup_gauge.set(bbs[0]['time'].timestamp())
-            last_basebackup_gauge.set(bbs[len(bbs) - 1]['time'].timestamp())
+            (last_upload_gauge.labels('basebackup')
+             .set(bbs[len(bbs) - 1]['time'].timestamp()))
         basebackup_exception = 0
     except subprocess.CalledProcessError as e:
         print(e)
@@ -106,7 +106,7 @@ def update_wal(*unused):
     except FileNotFoundError:
         print("Oups....")
         xlog_exception = 1
-    last_xlog_gauge.set(last_upload)
+    last_upload_gauge.labels('xlog').set(last_upload)
     xlog_ready_gauge.set(xlog_ready)
     xlog_done_gauge.set(xlog_done)
     exception_gauge.set(basebackup_exception + xlog_exception)
