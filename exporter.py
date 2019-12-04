@@ -17,6 +17,10 @@ last_basebackup_gauge = Gauge('walg_last_basebackup_upload',
                               'Last upload of full backup')
 oldest_basebackup_gauge = Gauge('walg_oldest_basebackup_upload',
                                 'oldest full backup')
+xlog_ready_gauge = Gauge('walg_missing_remote_wal_segment_at_end',
+                         'Xlog ready for upload')
+xlog_done_gauge = Gauge('walg_total_remote_wal_count',
+                         'Xlog uploaded')
 # g.set(4.2)   # Set to a given value
 
 
@@ -38,19 +42,28 @@ print('My PID is:', os.getpid())
 # Wal backup update
 # -----------------
 
-class Handler(pyinotify.ProcessEvent):
-    def __init__(self, last_xlog_gauge):
-        self.last_xlog_gauge = last_xlog_gauge
-
-    def process_default(self, event):
-        archive_dir = '/tmp/archive_status'
-        last_upload = 0
+def update_wal(*unused):
+    archive_dir = '/tmp/archive_status'
+    last_upload = 0
+    xlog_ready = 0
+    xlog_done = 0
+    try:
         for f in os.listdir(archive_dir):
-            mtime = os.stat(os.path.join(archive_dir, f)).st_mtime
-            if mtime > last_upload:
-                last_upload = mtime
-        print("Last upload : %s", last_upload)
-        self.last_xlog_gauge.set(last_upload)
+            # Search for last xlog done
+            if f[-5:len(f)] == '.done':
+                xlog_done = xlog_done + 1
+                mtime = os.stat(os.path.join(archive_dir, f)).st_mtime
+                if mtime > last_upload:
+                    last_upload = mtime
+            # search for xlog waiting for upload
+            elif f[-6:len(f)] == '.ready':
+                xlog_ready = xlog_ready + 1
+    except FileNotFoundError:
+        print("Oups....")
+        pass
+    last_xlog_gauge.set(last_upload)
+    xlog_ready_gauge.set(xlog_ready)
+    xlog_done_gauge.set(xlog_done)
 
 
 # Start inotify on the archive_status directory
@@ -65,12 +78,8 @@ event_mask = (pyinotify.IN_CREATE | pyinotify.IN_DELETE
 wal_watcher.add_watch('/tmp/archive_status', event_mask)
 
 
-def on_loop(*arg):
-    print("Hello")
-
-
 if __name__ == '__main__':
     # Start up the server to expose the metrics.
     start_http_server(8000)
     # Watch for events in archive_status
-    notifier.loop(callback=on_loop)
+    notifier.loop(callback=update_wal)
