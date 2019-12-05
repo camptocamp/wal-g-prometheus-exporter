@@ -1,4 +1,3 @@
-import time
 import os
 import signal
 import subprocess
@@ -50,11 +49,11 @@ xlogs_done = set()
 
 def format_date(bb):
     bb['time'] = datetime.datetime.strptime(bb['time'],
-                                         bb['date_fmt'])
+                                            bb['date_fmt'])
     bb['start_time'] = datetime.datetime.strptime(bb['start_time'],
-                                               bb['date_fmt'])
+                                                  bb['date_fmt'])
     bb['finish_time'] = datetime.datetime.strptime(bb['finish_time'],
-                                                bb['date_fmt'])
+                                                   bb['date_fmt'])
     return bb
 
 
@@ -88,6 +87,7 @@ def update_basebackup(*unused):
         When this script receive a SIGHUP signal, it will call backup-list
         and update metrics about basebackups
     """
+    global basebackup_exception, xlog_exception
     print('Updating basebackups metrics...')
     try:
         res = subprocess.run(["wal-g", "backup-list", "--detail", "--json"],
@@ -118,6 +118,10 @@ print('My PID is:', os.getpid())
 # -----------------
 
 def update_wal(*unused):
+    global basebackup_exception, xlog_exception
+
+
+
     archive_dir = '/tmp/archive_status'
     last_upload = 0
     xlog_since_last_bb = 0
@@ -136,7 +140,6 @@ def update_wal(*unused):
     except FileNotFoundError:
         print("Oups....")
         xlog_exception = 1
-    import pdb; pdb.pdb.set_trace()
     if len(bbs) > 0:
         last_bb_position = bbs[len(bbs) - 1].wal_file_name
         for xlog in xlogs_done:
