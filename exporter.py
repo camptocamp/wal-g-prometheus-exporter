@@ -15,7 +15,7 @@ basebackup_count_gauge = Gauge('walg_basebackup_count',
                                'Remote Basebackups count')
 basebackup_gauge = Gauge('walg_basebackup',
                          'Remote Basebackups',
-                         ['start_wal_segment'])
+                         ['start_wal_segment', 'start_lsn'])
 last_upload_gauge = Gauge('walg_last_upload',
                           'Last upload of incremental or full backup',
                           ['type'])
@@ -97,7 +97,7 @@ def update_basebackup(*unused):
         bbs = local_bbs
         print(bbs)
         for bb in bbs:
-            (basebackup_gauge.labels(bb['wal_file_name'])
+            (basebackup_gauge.labels(bb['wal_file_name'], bb['start_lsn'])
              .set(bb['time'].timestamp()))
         if len(bbs) > 0:
             oldest_basebackup_gauge.set(bbs[0]['time'].timestamp())
