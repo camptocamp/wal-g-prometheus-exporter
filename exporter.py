@@ -3,6 +3,7 @@ import signal
 import subprocess
 import json
 import datetime
+import re
 from prometheus_client import start_http_server
 from prometheus_client import Gauge
 import pyinotify
@@ -11,7 +12,8 @@ import pyinotify
 # -------------
 
 archive_dir = '/tmp/archive_status'
-
+DONE_WAL_RE = re.compile(r"^[A-F0-9]{24}\.done$")
+READY_WAL_RE = re.compile(r"^[A-F0-9]{24}\.ready$")
 
 # Metrics exposed
 # ---------------
@@ -141,13 +143,13 @@ def update_wal(*unused):
     try:
         for f in os.listdir(archive_dir):
             # Search for last xlog done
-            if f[-5:len(f)] == '.done':
+            if DONE_WAL_RE.match(f):
                 xlogs_done.add(f[0:-5])
                 mtime = os.stat(os.path.join(archive_dir, f)).st_mtime
                 if mtime > last_upload:
                     last_upload = mtime
             # search for xlog waiting for upload
-            elif f[-6:len(f)] == '.ready':
+            elif READY_WAL_RE.match(f):
                 xlogs_ready.add(f[0:-6])
         xlog_exception = 0
     except FileNotFoundError:
