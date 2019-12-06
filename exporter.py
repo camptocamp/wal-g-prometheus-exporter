@@ -7,13 +7,18 @@ import re
 from prometheus_client import start_http_server
 from prometheus_client import Gauge
 import pyinotify
+import boto3
+import botocore
+
 
 # Configuration
 # -------------
 
 archive_dir = '/tmp/archive_status'
+remote_xlog_path = 'wal_005'
 DONE_WAL_RE = re.compile(r"^[A-F0-9]{24}\.done$")
 READY_WAL_RE = re.compile(r"^[A-F0-9]{24}\.ready$")
+S3_PREFIX_RE = re.compile(r"^s3://(.*)/(.*)$")
 
 # Metrics exposed
 # ---------------
@@ -53,6 +58,7 @@ useless_remote_wal_segment_gauge = Gauge('walg_useless_remote_wal_segment',
 
 basebackup_exception = 0
 xlog_exception = 0
+remote_exception = 0
 bbs = []
 xlogs_ready = set()
 xlogs_done = set()
@@ -95,14 +101,78 @@ def is_before(a, b):
     return a_int < b_int
 
 
+def refresh_remote_xlogs():
+    global basebackup_exception, xlog_exception, remote_exception
+    global xlogs_done
+
+    botocore_session = botocore.session.get_session()
+    s3 = botocore_session.create_client(
+        "s3",
+        endpoint_url=os.getenv('AWS_ENDPOINT'),
+        region_name=os.getenv('AWS_REGION'),
+    )
+
+    s3_prefix = os.getenv('WALE_S3_PREFIX')
+    matches = S3_PREFIX_RE.match(s3_prefix)
+    bucket = matches.group(1)
+    prefix = "%s/wal" % matches.group(2)
+
+    continuation_token = None
+    marker = None
+    fetch_method = "V2"
+    while True:
+        args = {
+            "Bucket": bucket,
+            "Prefix": prefix,
+        }
+        if fetch_method == "V2" and continuation_token:
+            args["ContinuationToken"] = continuation_token
+        if fetch_method == "V1" and marker:
+            args["Marker"] = marker
+
+        # Fetch results by on method
+        if fetch_method == "V1":
+            response = s3.list_objects(**args)
+        elif fetch_method == "V2":
+            response = s3.list_objects_v2(**args)
+        else:
+            raise Exception("Invalid fetch method")
+
+        # Check if pagination is broken in V2
+        if fetch_method == "V2" and response.get("IsTruncated") and "NextContinuationToken" not in response:
+            # Fallback to list_object() V1 if NextContinuationToken is not in response
+            print("Pagination broken, falling back to list_object V1")
+            fetch_method = "V1"
+            response = s3.list_objects(**args)
+
+        for item in response.get("Contents", []):
+            xlog = os.path.splitext(os.path.basename(item['Key']))[0]
+            print(xlog)
+
+        if response.get("IsTruncated"):
+            if fetch_method == "V1":
+                marker = response.get('NextMarker')
+            elif fetch_method == "V2":
+                continuation_token = response["NextContinuationToken"]
+            else:
+                raise Exception("Invalid fetch method")
+        else:
+            break
+
+    print("OK")
+
+refresh_remote_xlogs()
+
 def update_basebackup(*unused):
     """
         When this script receive a SIGHUP signal, it will call backup-list
         and update metrics about basebackups
     """
     # Todo refresh remote xlogs because backup-push migh have remove some xlog
-    global basebackup_exception, xlog_exception
+    global basebackup_exception, xlog_exception, remote_exception
     global xlogs_done, xlogs_ready, bbs
+
+    refresh_remote_xlogs()
     print('Updating basebackups metrics...')
     try:
         res = subprocess.run(["wal-g", "backup-list", "--detail", "--json"],
@@ -123,7 +193,7 @@ def update_basebackup(*unused):
         print(e)
         basebackup_exception = 2
     basebackup_count_gauge.set(len(bbs))
-    exception_gauge.set(basebackup_exception + xlog_exception)
+    exception_gauge.set(basebackup_exception + xlog_exception + remote_exception)
 
 
 signal.signal(signal.SIGHUP, update_basebackup)
@@ -134,7 +204,7 @@ print('My PID is:', os.getpid())
 
 
 def update_wal(*unused):
-    global basebackup_exception, xlog_exception
+    global basebackup_exception, xlog_exception, remote_exception
     global bbs, xlogs_done, xlogs_ready
 
     last_upload = 0
@@ -153,7 +223,6 @@ def update_wal(*unused):
                 xlogs_ready.add(f[0:-6])
         xlog_exception = 0
     except FileNotFoundError:
-        print("Oups....")
         xlog_exception = 1
 
     # compute metrics
@@ -168,7 +237,7 @@ def update_wal(*unused):
     last_upload_gauge.labels('xlog').set(last_upload)
     xlog_ready_gauge.set(len(xlogs_ready))
     xlog_done_gauge.set(len(xlogs_done))
-    exception_gauge.set(basebackup_exception + xlog_exception)
+    exception_gauge.set(basebackup_exception + xlog_exception + remote_exception)
 
 
 def compute_complex_metrics():
