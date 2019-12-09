@@ -3,7 +3,7 @@
 .*.un~
 build/
 dist/
-wal-prometheus-exporter
+wal-g-prometheus-exporter
 __pycache__/
 .*.swp
 exporter.spec
