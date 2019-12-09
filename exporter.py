@@ -4,6 +4,7 @@ import subprocess
 import json
 import datetime
 import re
+import argparse
 from prometheus_client import start_http_server
 from prometheus_client import Gauge
 import pyinotify
@@ -14,7 +15,11 @@ import botocore
 # Configuration
 # -------------
 
-archive_dir = '/tmp/archive_status'
+parser = argparse.ArgumentParser()
+parser.add_argument("archive_dir",
+                    help="pg_wal/archive_status/ Directory location")
+args = parser.parse_args()
+archive_dir = args.archive_dir
 remote_xlog_path = 'wal_005'
 DONE_WAL_RE = re.compile(r"^[A-F0-9]{24}\.done$")
 READY_WAL_RE = re.compile(r"^[A-F0-9]{24}\.ready$")
