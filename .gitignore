@@ -1,3 +1,9 @@
 .idea/
 .*~
 .*.un~
+build/
+dist/
+wal-prometheus-exporter
+__pycache__/
+.*.swp
+exporter.spec

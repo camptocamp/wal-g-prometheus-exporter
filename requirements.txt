@@ -1,3 +1,4 @@
 prometheus_client
 pyinotify
 boto3
+pyinstaller
