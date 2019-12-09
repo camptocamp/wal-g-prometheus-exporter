@@ -319,6 +319,6 @@ if __name__ == '__main__':
     wal_watcher.add_watch('/tmp/archive_status', event_mask)
 
     # Start up the server to expose the metrics.
-    start_http_server(8000)
+    start_http_server(9351)
     # Watch for events in archive_status
     notifier.loop(callback=update_wal)
