@@ -101,9 +101,9 @@ def is_before(a, b):
     return a_int < b_int
 
 
-def refresh_remote_xlogs():
+def fetch_remote_xlogs():
     global basebackup_exception, xlog_exception, remote_exception
-    global xlogs_done
+    global xlogs_done, xlogs_ready
 
     botocore_session = botocore.session.get_session()
     s3 = botocore_session.create_client(
@@ -147,7 +147,7 @@ def refresh_remote_xlogs():
 
         for item in response.get("Contents", []):
             xlog = os.path.splitext(os.path.basename(item['Key']))[0]
-            print(xlog)
+            xlogs_done.add(xlog)
 
         if response.get("IsTruncated"):
             if fetch_method == "V1":
@@ -161,7 +161,6 @@ def refresh_remote_xlogs():
 
     print("OK")
 
-refresh_remote_xlogs()
 
 def update_basebackup(*unused):
     """
@@ -172,7 +171,6 @@ def update_basebackup(*unused):
     global basebackup_exception, xlog_exception, remote_exception
     global xlogs_done, xlogs_ready, bbs
 
-    refresh_remote_xlogs()
     print('Updating basebackups metrics...')
     try:
         res = subprocess.run(["wal-g", "backup-list", "--detail", "--json"],
@@ -308,21 +306,17 @@ def compute_complex_metrics():
 
 
 if __name__ == '__main__':
-    # TODO : Scan remote xlog and fill xlog_done
-    # Check for remote basebackup (this will also check remote xlogs)
+    # startup, first check local xlog, then remote and finally basebackups
+    update_wal()
+    fetch_remote_xlogs()
     update_basebackup()
 
     # Start inotify on the archive_status directory
     wal_watcher = pyinotify.WatchManager()
-
-    #notifier = pyinotify.Notifier(wal_watcher,
-    #                              default_proc_fun=Handler(last_xlog_gauge))
     notifier = pyinotify.Notifier(wal_watcher)
-    event_mask = (pyinotify.IN_CREATE | pyinotify.IN_DELETE
-                  | pyinotify.IN_MODIFY | pyinotify.IN_MOVED_FROM
-                  | pyinotify.IN_MOVED_TO)
+    event_mask = (pyinotify.IN_CREATE | pyinotify.IN_DELETE | pyinotify.IN_MODIFY
+                  | pyinotify.IN_MOVED_FROM | pyinotify.IN_MOVED_TO)
     wal_watcher.add_watch('/tmp/archive_status', event_mask)
-
 
     # Start up the server to expose the metrics.
     start_http_server(8000)
