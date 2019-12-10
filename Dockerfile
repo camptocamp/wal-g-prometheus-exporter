@@ -20,7 +20,6 @@ RUN pip3 install -r requirements.txt
 ADD exporter.py /usr/src/
 RUN pyinstaller --onefile exporter.py && \
     mv dist/exporter wal-g-prometheus-exporter
-ENTRYPOINT ["/usr/src/wal-g-prometheus-exporter"]
 
 # Build final image
 FROM debian:10-slim
@@ -30,3 +29,4 @@ ADD https://github.com/wal-g/wal-g/releases/download/v0.2.14/wal-g.linux-amd64.t
 RUN cd /usr/bin/ && \
     tar -zxvf wal-g.linux-amd64.tar.gz && \
     rm wal-g.linux-amd64.tar.gz
+ENTRYPOINT ["/usr/bin/wal-g-prometheus-exporter"]
