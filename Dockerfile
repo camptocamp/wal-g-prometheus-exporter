@@ -22,16 +22,11 @@ RUN pyinstaller --onefile exporter.py && \
     mv dist/exporter wal-g-prometheus-exporter
 ENTRYPOINT ["/usr/src/wal-g-prometheus-exporter"]
 
-# Build Walg-g
-FROM golang:1.13 as wal-g-builder
-RUN go get github.com/wal-g/wal-g@[v0.2.14] || true && \
-    apt update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y cmake liblzo2-dev
-WORKDIR /go/src/github.com/wal-g/wal-g
-RUN make install deps pg_build
-
 # Build final image
-FROM busybox:glibc
+FROM debian:10-slim
 
 COPY --from=exporter-builder /usr/src/wal-g-prometheus-exporter /usr/bin/
-COPY --from=wal-g-builder /go/src/github.com/wal-g/wal-g/main/pg/wal-g /usr/bin/
+ADD https://github.com/wal-g/wal-g/releases/download/v0.2.14/wal-g.linux-amd64.tar.gz /usr/bin/
+RUN cd /usr/bin/ && \
+    tar -zxvf wal-g.linux-amd64.tar.gz && \
+    rm wal-g.linux-amd64.tar.gz
