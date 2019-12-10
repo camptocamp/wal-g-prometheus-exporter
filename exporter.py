@@ -85,6 +85,8 @@ xlogs_done = set()
 
 
 def format_date(bb):
+    # fix date format to include timezone
+    bb['date_fmt'] = bb['date_fmt'].replace('Z', '%z')
     bb['time'] = datetime.datetime.strptime(bb['time'],
                                             bb['date_fmt'])
     bb['start_time'] = datetime.datetime.strptime(bb['start_time'],
