@@ -27,6 +27,11 @@ if args.debug:
 else:
     logging.basicConfig(level=logging.WARNING)
 
+# Disable logging of libs
+for key in logging.Logger.manager.loggerDict:
+    if key != 'root':
+        logging.getLogger(key).setLevel(logging.WARNING)
+
 archive_dir = args.archive_dir
 http_port = 9351
 DONE_WAL_RE = re.compile(r"^[A-F0-9]{24}\.done$")
