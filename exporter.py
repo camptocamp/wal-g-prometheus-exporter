@@ -196,7 +196,8 @@ def update_basebackup(*unused):
         local_bbs.sort(key=lambda bb: bb['time'])
         bbs = local_bbs
         info("%s basebackups found (last: %s)",
-             (len(bbs), bbs[len(bbs) - 1]['time']))
+             len(bbs),
+             bbs[len(bbs) - 1]['time'])
         for bb in bbs:
             (basebackup_gauge.labels(bb['wal_file_name'], bb['start_lsn'])
              .set(bb['time'].timestamp()))
@@ -215,7 +216,7 @@ def update_basebackup(*unused):
 
 
 signal.signal(signal.SIGHUP, update_basebackup)
-info('My PID is:', os.getpid())
+info('My PID is: %s', os.getpid())
 
 # Wal backup update
 # -----------------
@@ -252,8 +253,8 @@ def update_wal():
         xlog_exception = 1
 
     info("ready diff: %s done diff: %s",
-         (len(xlogs_ready) - current_xlog_ready,
-          len(xlogs_done) - current_xlog_done))
+         len(xlogs_ready) - current_xlog_ready,
+         len(xlogs_done) - current_xlog_done)
     # compute metrics
     compute_complex_metrics()
     if bbs:
@@ -283,7 +284,7 @@ def compute_complex_metrics():
     useless_remote_wal = 0
 
     for bb in bbs:
-        info("Check bb %s %s", (bb['backup_name'], bb['wal_file_name']))
+        info("Check bb %s %s", bb['backup_name'], bb['wal_file_name'])
         if oldest_valid_basebackup is None:
             oldest_valid_basebackup = bb['time']
         valid_basebackup_count = valid_basebackup_count + 1
