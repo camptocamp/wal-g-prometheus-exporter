@@ -19,6 +19,4 @@ RUN pip3 install -r requirements.txt
 ADD exporter.py /usr/src/
 RUN pyinstaller --onefile exporter.py && \
     mv dist/exporter wal-g-prometheus-exporter
-
-FROM busybox:glibc
-COPY --from=0 /usr/src/wal-g-prometheus-exporter /bin/wal-g-prometheus-exporter
+ENTRYPOINT ["/usr/src/wal-g-prometheus-exporter"]
