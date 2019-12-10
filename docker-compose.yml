@@ -1,0 +1,13 @@
+version: "3"
+services:
+  exporter:
+    build: ./
+    image: camptocamp/wal-g-prometheus-exporter:latest
+    environment:
+      - AWS_ACCESS_KEY_ID=xxxxxxxxxxxxxxxxxxxxxxxxxxx
+      - AWS_SECRET_ACCESS_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+      - WALE_S3_PREFIX=s3://bucket/sub-dir
+      - AWS_ENDPOINT=https://s3-like-endpoint.domain.com:443
+      - AWS_S3_FORCE_PATH_STYLE=true
+      - AWS_REGION=some-region
+    command: ["/tmp/archive_status"]
