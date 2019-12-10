@@ -5,10 +5,12 @@ import json
 import datetime
 import re
 import argparse
+import logging
+from logging import warning, info, debug, error  # noqa: F401
 from prometheus_client import start_http_server
 from prometheus_client import Gauge
 import pyinotify
-import boto3
+import boto3  # noqa: F401
 import botocore
 
 
@@ -18,9 +20,15 @@ import botocore
 parser = argparse.ArgumentParser()
 parser.add_argument("archive_dir",
                     help="pg_wal/archive_status/ Directory location")
+parser.add_argument("--debug", help="enable debug log", action="store_true")
 args = parser.parse_args()
+if args.debug:
+    logging.basicConfig(level=logging.DEBUG)
+else:
+    logging.basicConfig(level=logging.WARNING)
+
 archive_dir = args.archive_dir
-remote_xlog_path = 'wal_005'
+http_port = 9351
 DONE_WAL_RE = re.compile(r"^[A-F0-9]{24}\.done$")
 READY_WAL_RE = re.compile(r"^[A-F0-9]{24}\.ready$")
 S3_PREFIX_RE = re.compile(r"^s3://(.*)/(.*)$")
@@ -42,7 +50,7 @@ last_upload_gauge = Gauge('walg_last_upload',
 oldest_basebackup_gauge = Gauge('walg_oldest_basebackup',
                                 'oldest full backup')
 xlog_missing_gauge = Gauge('walg_missing_remote_wal_segment',
-                         'Xlog missing (gap)')
+                           'Xlog missing (gap)')
 xlog_ready_gauge = Gauge('walg_missing_remote_wal_segment_at_end',
                          'Xlog ready for upload')
 xlog_done_gauge = Gauge('walg_total_remote_wal_count',
@@ -96,6 +104,7 @@ def get_next_wal(wal):
     segment_low = segment_low % 0x100
     return '%s%08X%08X' % (timeline, segment_high, segment_low)
 
+
 def is_before(a, b):
     timeline_a = a[0:8]
     timeline_b = b[0:8]
@@ -107,6 +116,7 @@ def is_before(a, b):
 
 
 def fetch_remote_xlogs():
+    info("Fetch remote xlogs")
     global basebackup_exception, xlog_exception, remote_exception
     global xlogs_done, xlogs_ready
 
@@ -144,9 +154,11 @@ def fetch_remote_xlogs():
             raise Exception("Invalid fetch method")
 
         # Check if pagination is broken in V2
-        if fetch_method == "V2" and response.get("IsTruncated") and "NextContinuationToken" not in response:
-            # Fallback to list_object() V1 if NextContinuationToken is not in response
-            print("Pagination broken, falling back to list_object V1")
+        if (fetch_method == "V2" and response.get("IsTruncated")
+                and "NextContinuationToken" not in response):
+            # Fallback to list_object() V1 if NextContinuationToken
+            # is not in response
+            warning("Pagination broken, falling back to list_object V1")
             fetch_method = "V1"
             response = s3.list_objects(**args)
 
@@ -164,7 +176,7 @@ def fetch_remote_xlogs():
         else:
             break
 
-    print("OK")
+    info("%s remote xlogs", len(xlogs_done))
 
 
 def update_basebackup(*unused):
@@ -176,40 +188,51 @@ def update_basebackup(*unused):
     global basebackup_exception, xlog_exception, remote_exception
     global xlogs_done, xlogs_ready, bbs
 
-    print('Updating basebackups metrics...')
+    info('Updating basebackups metrics...')
     try:
         res = subprocess.run(["wal-g", "backup-list", "--detail", "--json"],
                              capture_output=True, check=True)
         local_bbs = list(map(format_date, json.loads(res.stdout)))
         local_bbs.sort(key=lambda bb: bb['time'])
         bbs = local_bbs
-        print(bbs)
+        info("%s basebackups found (last: %s)",
+             (len(bbs), bbs[len(bbs) - 1]['time']))
         for bb in bbs:
             (basebackup_gauge.labels(bb['wal_file_name'], bb['start_lsn'])
              .set(bb['time'].timestamp()))
-        if len(bbs) > 0:
+        if bbs:
             oldest_basebackup_gauge.set(bbs[0]['time'].timestamp())
             (last_upload_gauge.labels('basebackup')
              .set(bbs[len(bbs) - 1]['time'].timestamp()))
         basebackup_exception = 0
     except subprocess.CalledProcessError as e:
-        print(e)
+        error(e)
         basebackup_exception = 2
     basebackup_count_gauge.set(len(bbs))
-    exception_gauge.set(basebackup_exception + xlog_exception + remote_exception)
+    exception_gauge.set(basebackup_exception +
+                        xlog_exception +
+                        remote_exception)
 
 
 signal.signal(signal.SIGHUP, update_basebackup)
-print('My PID is:', os.getpid())
+info('My PID is:', os.getpid())
 
 # Wal backup update
 # -----------------
 
 
-def update_wal(*unused):
+def update_wal_callback(*unused):
+    info("Update local wal triggered by inotify")
+    update_wal()
+
+
+def update_wal():
+    info("Updating metrics based on local archive_status")
     global basebackup_exception, xlog_exception, remote_exception
     global bbs, xlogs_done, xlogs_ready
 
+    current_xlog_done = len(xlogs_done)
+    current_xlog_ready = len(xlogs_ready)
     last_upload = 0
     xlog_since_last_bb = 0
     # Read the archive_status directory to find new done or ready xlog
@@ -228,19 +251,23 @@ def update_wal(*unused):
     except FileNotFoundError:
         xlog_exception = 1
 
+    info("ready diff: %s done diff: %s",
+         (len(xlogs_ready) - current_xlog_ready,
+          len(xlogs_done) - current_xlog_done))
     # compute metrics
     compute_complex_metrics()
-    if len(bbs) > 0:
+    if bbs:
         last_bb_position = bbs[len(bbs) - 1]['wal_file_name']
         for xlog in xlogs_done:
-            print("Compare %s %s", (last_bb_position, xlog))
             if is_before(last_bb_position, xlog):
                 xlog_since_last_bb = xlog_since_last_bb + 1
     xlog_since_last_bb_gauge.set(xlog_since_last_bb)
     last_upload_gauge.labels('xlog').set(last_upload)
     xlog_ready_gauge.set(len(xlogs_ready))
     xlog_done_gauge.set(len(xlogs_done))
-    exception_gauge.set(basebackup_exception + xlog_exception + remote_exception)
+    exception_gauge.set(basebackup_exception +
+                        xlog_exception +
+                        remote_exception)
 
 
 def compute_complex_metrics():
@@ -256,7 +283,7 @@ def compute_complex_metrics():
     useless_remote_wal = 0
 
     for bb in bbs:
-        print("Check bb %s %s", (bb['backup_name'], bb['wal_file_name']))
+        info("Check bb %s %s", (bb['backup_name'], bb['wal_file_name']))
         if oldest_valid_basebackup is None:
             oldest_valid_basebackup = bb['time']
         valid_basebackup_count = valid_basebackup_count + 1
@@ -283,10 +310,12 @@ def compute_complex_metrics():
             if current_xlog in xlogs_done:
                 continious_wal = continious_wal + 1
             else:
-                # Don't care if it's the last WAL segment, it might be currently uploading
+                # Don't care if it's the last WAL segment, it might
+                # be currently uploading
                 # Don't reset stats if last WAL segments are missing
-                remote_xlog_after_current = [xlog for xlog in xlogs_done if is_before(current_xlog, xlog)]
-                if len(remote_xlog_after_current) != 0:
+                remote_xlog_after_current = [xlog for xlog in xlogs_done
+                                             if is_before(current_xlog, xlog)]
+                if remote_xlog_after_current:
                     missing_wal = missing_wal + 1
                     continious_wal = 0
                     oldest_valid_basebackup = None
@@ -294,7 +323,7 @@ def compute_complex_metrics():
             current_xlog = get_next_wal(current_xlog)
 
     # Search for useless wal segments
-    if len(bbs) > 0:
+    if bbs:
         first_wal_needed = bbs[0]['wal_file_name']
         for wal in xlogs_done:
             if is_before(wal, first_wal_needed):
@@ -306,12 +335,13 @@ def compute_complex_metrics():
     xlog_missing_gauge.set(missing_wal)
     continious_wal_gauge.set(continious_wal)
     valid_basebackup_count_gauge.set(valid_basebackup_count)
-    if len(bbs) > 0:
+    if bbs:
         useless_remote_wal_segment_gauge.set(useless_remote_wal)
 
 
 if __name__ == '__main__':
     # startup, first check local xlog, then remote and finally basebackups
+    info("Startup...")
     update_wal()
     fetch_remote_xlogs()
     update_basebackup()
@@ -319,11 +349,16 @@ if __name__ == '__main__':
     # Start inotify on the archive_status directory
     wal_watcher = pyinotify.WatchManager()
     notifier = pyinotify.Notifier(wal_watcher)
-    event_mask = (pyinotify.IN_CREATE | pyinotify.IN_DELETE | pyinotify.IN_MODIFY
-                  | pyinotify.IN_MOVED_FROM | pyinotify.IN_MOVED_TO)
-    wal_watcher.add_watch('/tmp/archive_status', event_mask)
+    event_mask = (pyinotify.IN_CREATE |
+                  pyinotify.IN_DELETE |
+                  pyinotify.IN_MODIFY |
+                  pyinotify.IN_MOVED_FROM |
+                  pyinotify.IN_MOVED_TO)
+    wal_watcher.add_watch(archive_dir, event_mask)
+    info("Inotify watcher started on %s", archive_dir)
 
     # Start up the server to expose the metrics.
-    start_http_server(9351)
+    start_http_server(http_port)
+    info("Webserver started on port %s", http_port)
     # Watch for events in archive_status
-    notifier.loop(callback=update_wal)
+    notifier.loop(callback=update_wal_callback)
