@@ -249,6 +249,8 @@ def update_wal():
             # Search for last xlog done
             if DONE_WAL_RE.match(f):
                 xlogs_done.add(f[0:-5])
+                if f[0:-5] in xlogs_ready:
+                    xlogs_ready.remove(f[0:-5])
                 mtime = os.stat(os.path.join(archive_dir, f)).st_mtime
                 if mtime > last_upload:
                     last_upload = mtime
