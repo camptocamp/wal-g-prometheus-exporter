@@ -26,6 +26,12 @@ FROM debian:10-slim
 
 COPY --from=exporter-builder /usr/src/wal-g-prometheus-exporter /usr/bin/
 ADD https://github.com/wal-g/wal-g/releases/download/v0.2.14/wal-g.linux-amd64.tar.gz /usr/bin/
+RUN apt-get update && \
+    apt-get install -y ca-certificates && \
+    apt-get upgrade -y -q && \
+    apt-get dist-upgrade -y -q && \
+    apt-get -y -q autoclean && \
+    apt-get -y -q autoremove
 RUN cd /usr/bin/ && \
     tar -zxvf wal-g.linux-amd64.tar.gz && \
     rm wal-g.linux-amd64.tar.gz
