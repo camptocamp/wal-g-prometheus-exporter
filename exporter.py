@@ -6,12 +6,16 @@ import datetime
 import re
 import argparse
 import logging
+import time
 from logging import warning, info, debug, error  # noqa: F401
 from prometheus_client import start_http_server
 from prometheus_client import Gauge
 import pyinotify
 import boto3  # noqa: F401
 import botocore
+import psycopg2
+
+
 
 
 # Configuration
@@ -350,8 +354,32 @@ def compute_complex_metrics():
 
 
 if __name__ == '__main__':
-    # startup, first check local xlog, then remote and finally basebackups
     info("Startup...")
+    info('My PID is: %s', os.getpid())
+
+    # Start up the server to expose the metrics.
+    start_http_server(http_port)
+    info("Webserver started on port %s", http_port)
+
+    # Check if this is a master instance
+    while True:
+        try:
+            db_connection = psycopg2.connect(user="postgres",
+                                             database="postgres")
+            db_connection.autocommit = True
+            with db_connection.cursor() as c:
+                c.execute("SELECT NOT pg_is_in_recovery()")
+                result = c.fetchone()
+                if bool(result) and result[0]:
+                    break
+                else:
+                    info("Running on slave, waiting for promotion...")
+                    time.sleep(60)
+        except Exception:
+            error("Unable to connect postgres server, retrying in 60sec...")
+            time.sleep(60)
+
+    # first check local xlog, then remotes and finally basebackups
     update_wal()
     fetch_remote_xlogs()
     update_basebackup()
@@ -367,8 +395,5 @@ if __name__ == '__main__':
     wal_watcher.add_watch(archive_dir, event_mask)
     info("Inotify watcher started on %s", archive_dir)
 
-    # Start up the server to expose the metrics.
-    start_http_server(http_port)
-    info("Webserver started on port %s", http_port)
     # Watch for events in archive_status
     notifier.loop(callback=update_wal_callback)

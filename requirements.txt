@@ -1,4 +1,5 @@
-prometheus_client
-pyinotify
 boto3
+prometheus_client
+psycopg2
+pyinotify
 pyinstaller

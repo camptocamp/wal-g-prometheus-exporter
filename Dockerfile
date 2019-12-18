@@ -3,7 +3,7 @@ FROM centos:7 AS exporter-builder
 
 WORKDIR /usr/src/
 ADD https://www.python.org/ftp/python/3.7.5/Python-3.7.5.tgz  /usr/src/
-RUN yum -y install curl make gcc openssl-devel bzip2-devel libffi-devel
+RUN yum -y install curl make gcc openssl-devel bzip2-devel libffi-devel postgresql-devel
 RUN tar xzf Python-3.7.5.tgz && \
     rm -fr Python-3.7.5.tgz && \
     cd Python-3.7.5 && \
