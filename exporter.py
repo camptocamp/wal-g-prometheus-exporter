@@ -126,10 +126,7 @@ def is_before(a, b):
     return a_int < b_int
 
 
-def fetch_remote_xlogs():
-    info("Fetch remote xlogs")
-    global basebackup_exception, xlog_exception, remote_exception
-    global xlogs_done, xlogs_ready
+def scan_remote_xlogs():
 
     botocore_session = botocore.session.get_session()
     s3 = botocore_session.create_client(
@@ -174,8 +171,7 @@ def fetch_remote_xlogs():
             response = s3.list_objects(**args)
 
         for item in response.get("Contents", []):
-            xlog = os.path.splitext(os.path.basename(item['Key']))[0]
-            xlogs_done.add(xlog)
+            yield os.path.splitext(os.path.basename(item['Key']))[0]
 
         if response.get("IsTruncated"):
             if fetch_method == "V1":
@@ -187,6 +183,16 @@ def fetch_remote_xlogs():
         else:
             break
 
+
+
+def fetch_remote_xlogs():
+    info("Fetch remote xlogs")
+    global basebackup_exception, xlog_exception, remote_exception
+    global xlogs_done, xlogs_ready
+
+    for xlog in scan_remote_xlogs():
+        xlogs_done.add(xlog)
+
     info("%s remote xlogs", len(xlogs_done))
 
 
@@ -195,7 +201,6 @@ def update_basebackup(*unused):
         When this script receive a SIGHUP signal, it will call backup-list
         and update metrics about basebackups
     """
-    # Todo refresh remote xlogs because backup-push migh have remove some xlog
     global basebackup_exception, xlog_exception, remote_exception
     global xlogs_done, xlogs_ready, bbs
 
@@ -224,10 +229,15 @@ def update_basebackup(*unused):
     exception_gauge.set(basebackup_exception +
                         xlog_exception +
                         remote_exception)
+    # Clean up: Remove xlog deleted on remote storage
+    new_xlogs_done = set()
+    for xlog in scan_remote_xlogs():
+        new_xlogs_done.add(xlog)
+    diff = xlogs_done - new_xlogs_done
+    info("%s xlogs removed", len(diff))
+    for x in diff:
+        xlogs_done.remove(x)
 
-
-signal.signal(signal.SIGHUP, update_basebackup)
-info('My PID is: %s', os.getpid())
 
 # Wal backup update
 # -----------------
@@ -383,6 +393,9 @@ if __name__ == '__main__':
     update_wal()
     fetch_remote_xlogs()
     update_basebackup()
+
+    # listen to SIGHUP signal
+    signal.signal(signal.SIGHUP, update_basebackup)
 
     # Start inotify on the archive_status directory
     wal_watcher = pyinotify.WatchManager()
