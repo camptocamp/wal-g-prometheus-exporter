@@ -42,39 +42,6 @@ DONE_WAL_RE = re.compile(r"^[A-F0-9]{24}\.done$")
 READY_WAL_RE = re.compile(r"^[A-F0-9]{24}\.ready$")
 S3_PREFIX_RE = re.compile(r"^s3://(.*)/(.*)$")
 
-# Metrics exposed
-# ---------------
-
-# Declare metrics
-basebackup_count_gauge = Gauge('walg_basebackup_count',
-                               'Remote Basebackups count')
-basebackup_gauge = Gauge('walg_basebackup',
-                         'Remote Basebackups',
-                         ['start_wal_segment', 'start_lsn'])
-oldest_valid_basebackup_gauge = Gauge('walg_oldest_valid_basebackup',
-                                      'Oldest valid backup (without gap)')
-last_upload_gauge = Gauge('walg_last_upload',
-                          'Last upload of incremental or full backup',
-                          ['type'])
-oldest_basebackup_gauge = Gauge('walg_oldest_basebackup',
-                                'oldest full backup')
-xlog_missing_gauge = Gauge('walg_missing_remote_wal_segment',
-                           'Xlog missing (gap)')
-xlog_ready_gauge = Gauge('walg_missing_remote_wal_segment_at_end',
-                         'Xlog ready for upload')
-xlog_done_gauge = Gauge('walg_total_remote_wal_count',
-                        'Xlog uploaded')
-exception_gauge = Gauge('walg_exception',
-                        'Wal-g exception: 1 for xlog error and'
-                        ' 2 for basebackup error')
-xlog_since_last_bb_gauge = Gauge('walg_xlogs_since_basebackup',
-                                 'Xlog uploaded since last base backup')
-continious_wal_gauge = Gauge('walg_continious_wal',
-                             'sequence of xlog without gap')
-valid_basebackup_count_gauge = Gauge('walg_valid_basebackup_count',
-                                     'Basebackup without gap')
-useless_remote_wal_segment_gauge = Gauge('walg_useless_remote_wal_segment',
-                                         'Remote useless wal segments')
 # TODO:
 # * walg_last_basebackup_duration
 
@@ -388,6 +355,40 @@ if __name__ == '__main__':
         except Exception:
             error("Unable to connect postgres server, retrying in 60sec...")
             time.sleep(60)
+
+    # Metrics exposed
+    # ---------------
+
+    # Declare metrics
+    basebackup_count_gauge = Gauge('walg_basebackup_count',
+                                   'Remote Basebackups count')
+    basebackup_gauge = Gauge('walg_basebackup',
+                             'Remote Basebackups',
+                             ['start_wal_segment', 'start_lsn'])
+    oldest_valid_basebackup_gauge = Gauge('walg_oldest_valid_basebackup',
+                                          'Oldest valid backup (without gap)')
+    last_upload_gauge = Gauge('walg_last_upload',
+                              'Last upload of incremental or full backup',
+                              ['type'])
+    oldest_basebackup_gauge = Gauge('walg_oldest_basebackup',
+                                    'oldest full backup')
+    xlog_missing_gauge = Gauge('walg_missing_remote_wal_segment',
+                               'Xlog missing (gap)')
+    xlog_ready_gauge = Gauge('walg_missing_remote_wal_segment_at_end',
+                             'Xlog ready for upload')
+    xlog_done_gauge = Gauge('walg_total_remote_wal_count',
+                            'Xlog uploaded')
+    exception_gauge = Gauge('walg_exception',
+                            'Wal-g exception: 1 for xlog error and'
+                            ' 2 for basebackup error')
+    xlog_since_last_bb_gauge = Gauge('walg_xlogs_since_basebackup',
+                                     'Xlog uploaded since last base backup')
+    continious_wal_gauge = Gauge('walg_continious_wal',
+                                 'sequence of xlog without gap')
+    valid_basebackup_count_gauge = Gauge('walg_valid_basebackup_count',
+                                         'Basebackup without gap')
+    useless_remote_wal_segment_gauge = Gauge('walg_useless_remote_wal_segment',
+                                             'Remote useless wal segments')
 
     # first check local xlog, then remotes and finally basebackups
     update_wal()
