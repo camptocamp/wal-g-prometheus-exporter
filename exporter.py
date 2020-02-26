@@ -26,7 +26,7 @@ args = parser.parse_args()
 if args.debug:
     logging.basicConfig(level=logging.DEBUG)
 else:
-    logging.basicConfig(level=logging.WARNING)
+    logging.basicConfig(level=logging.INFO)
 
 # Disable logging of libs
 for key in logging.Logger.manager.loggerDict:
@@ -93,6 +93,7 @@ class Exporter():
         self.bbs = []
         self.xlogs_ready = set()
         self.xlogs_done = set()
+        self.last_wal_check = None
         botocore_session = botocore.session.get_session()
         self.s3_client = botocore_session.create_client(
             "s3",
@@ -241,8 +242,13 @@ class Exporter():
     # Wal backup update
     # -----------------
     def update_wal_callback(self, *unused):
-        info("Update local wal triggered by inotify")
-        self.update_wal()
+        if (self.last_wal_check is None or
+                time.time() - self.last_wal_check > 1.0):
+            info("Update local wal triggered by inotify")
+            self.update_wal()
+            self.last_wal_check = time.time()
+        else:
+            debug("Skip wal check")
 
     def update_wal(self):
         info("Updating metrics based on local archive_status")
