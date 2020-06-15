@@ -14,6 +14,8 @@ import pyinotify
 import boto3  # noqa: F401
 import botocore
 import psycopg2
+from psycopg2.extras import DictCursor
+
 
 # Configuration
 # -------------
@@ -37,7 +39,7 @@ archive_dir = args.archive_dir
 http_port = 9351
 DONE_WAL_RE = re.compile(r"^[A-F0-9]{24}\.done$")
 READY_WAL_RE = re.compile(r"^[A-F0-9]{24}\.ready$")
-S3_PREFIX_RE = re.compile(r"^s3://(.*)/(.*)$")
+S3_PREFIX_RE = re.compile(r"^s3://([^/]*)(.*)$")
 
 # TODO:
 # * walg_last_basebackup_duration
@@ -49,13 +51,18 @@ S3_PREFIX_RE = re.compile(r"^s3://(.*)/(.*)$")
 def format_date(bb):
     # fix date format to include timezone
     bb['date_fmt'] = bb['date_fmt'].replace('Z', '%z')
-    bb['time'] = datetime.datetime.strptime(bb['time'],
-                                            bb['date_fmt'])
-    bb['start_time'] = datetime.datetime.strptime(bb['start_time'],
-                                                  bb['date_fmt'])
-    bb['finish_time'] = datetime.datetime.strptime(bb['finish_time'],
-                                                   bb['date_fmt'])
+    bb['time'] = parse_date(bb['time'], bb['date_fmt'])
+    bb['start_time'] = parse_date(bb['start_time'], bb['date_fmt'])
+    bb['finish_time'] = parse_date(bb['finish_time'], bb['date_fmt'])
     return bb
+
+def parse_date(date, fmt):
+    fmt = fmt.replace('Z', '%z')
+    try:
+      return datetime.datetime.strptime(date, fmt)
+    except ValueError as e:
+        fmt = fmt.replace('.%f', '')
+        return datetime.datetime.strptime(date, fmt)
 
 
 def get_previous_wal(wal):
@@ -87,11 +94,10 @@ def is_before(a, b):
 class Exporter():
 
     def __init__(self):
-        self.basebackup_exception = 0
-        self.xlog_exception = 0
-        self.remote_exception = 0
+        self.basebackup_exception = False
+        self.xlog_exception = False
+        self.remote_exception = False
         self.bbs = []
-        self.xlogs_ready = set()
         self.xlogs_done = set()
         self.last_wal_check = None
         botocore_session = botocore.session.get_session()
@@ -104,7 +110,7 @@ class Exporter():
         matches = S3_PREFIX_RE.match(s3_prefix)
 
         self.s3_bucket = matches.group(1)
-        self.s3_prefix = "%s/wal" % matches.group(2)
+        self.s3_prefix = matches.group(2)
 
         # Declare metrics
         self.basebackup_count = Gauge('walg_basebackup_count',
@@ -118,17 +124,27 @@ class Exporter():
         self.last_upload = Gauge('walg_last_upload',
                                  'Last upload of incremental or full backup',
                                  ['type'])
+        self.last_upload.labels('xlog').set_function(self.last_xlog_upload_callback)
         self.oldest_basebackup = Gauge('walg_oldest_basebackup',
                                        'oldest full backup')
         self.xlog_missing = Gauge('walg_missing_remote_wal_segment',
                                   'Xlog missing (gap)')
         self.xlog_ready = Gauge('walg_missing_remote_wal_segment_at_end',
                                 'Xlog ready for upload')
+        self.xlog_ready.set_function(self.xlog_ready_callback)
+
         self.xlog_done = Gauge('walg_total_remote_wal_count',
                                'Xlog uploaded')
+        self.xlog_done.set_function(self.xlog_done_callback)
         self.exception = Gauge('walg_exception',
-                               'Wal-g exception: 1 for xlog error and'
-                               ' 2 for basebackup error')
+                               'Wal-g exception: 2 for basebackup error, '
+                               '3 for xlog error and '
+                               '5 for remote error')
+        self.exception.set_function(
+            lambda: (2 if self.basebackup_exception else 0 +
+                     3 if self.xlog_exception else 0 +
+                     5 if self.remote_exception else 0))
+
         self.xlog_since_last_bb = Gauge('walg_xlogs_since_basebackup',
                                         'Xlog uploaded since last base backup')
         self.continious_wal = Gauge('walg_continious_wal',
@@ -140,10 +156,20 @@ class Exporter():
                   'Remote useless wal segments')
         )
 
-        # first check local xlog, then remotes and finally basebackups
-        self.update_wal()
+        # first check remotes xlog and finally basebackups
         self.fetch_remote_xlogs()
         self.update_basebackup()
+
+    def find_remote_xlog(self, xlog):
+        s3_args = {
+            "Bucket": self.s3_bucket,
+            "Prefix": "%s/wal_005/%s.lz4" % (self.s3_prefix, xlog),
+        }
+        response = self.s3_client.list_objects_v2(**s3_args)
+        for item in response.get("Contents", []):
+            if os.path.splitext(os.path.basename(item['Key']))[0] == xlog:
+                return True
+        return False
 
     def _scan_remote_xlogs(self):
 
@@ -153,7 +179,7 @@ class Exporter():
         while True:
             s3_args = {
                 "Bucket": self.s3_bucket,
-                "Prefix": self.s3_prefix,
+                "Prefix": "%s/wal_005/" % self.s3_prefix,
             }
             if fetch_method == "V2" and continuation_token:
                 s3_args["ContinuationToken"] = continuation_token
@@ -193,8 +219,13 @@ class Exporter():
     def fetch_remote_xlogs(self):
         info("Fetch remote xlogs")
 
-        for xlog in self._scan_remote_xlogs():
-            self.xlogs_done.add(xlog)
+        try:
+            for xlog in self._scan_remote_xlogs():
+                self.xlogs_done.add(xlog)
+            self.remote_exception = False
+        except Exception as e:
+            self.remote_exception = True
+            raise e
 
         info("%s remote xlogs", len(self.xlogs_done))
 
@@ -222,76 +253,89 @@ class Exporter():
                 self.oldest_basebackup.set(self.bbs[0]['time'].timestamp())
                 (self.last_upload.labels('basebackup')
                  .set(self.bbs[len(self.bbs) - 1]['time'].timestamp()))
-            self.basebackup_exception = 0
+            self.basebackup_exception = False
         except subprocess.CalledProcessError as e:
             error(e)
-            self.basebackup_exception = 2
+            self.basebackup_exception = True
         self.basebackup_count.set(len(self.bbs))
-        self.exception.set(self.basebackup_exception +
-                           self.xlog_exception +
-                           self.remote_exception)
         # Clean up: Remove xlog deleted on remote storage
-        new_xlogs_done = set()
-        for xlog in self._scan_remote_xlogs():
-            new_xlogs_done.add(xlog)
-        diff = self.xlogs_done - new_xlogs_done
-        info("%s xlogs removed", len(diff))
-        for x in diff:
-            self.xlogs_done.remove(x)
+        # Search for deleted xlog from the end of the list (oldest)
+        xlog_removed = 0
+        for xlog in sorted(self.xlogs_done):
+            if self.find_remote_xlog(xlog):
+                # Stop at the first xlog find on remote storage
+                # next xlog should still exists
+                break
+            else:
+                self.xlogs_done.remove(xlog)
+                xlog_removed += 1
 
-    # Wal backup update
-    # -----------------
-    def update_wal_callback(self, *unused):
-        if (self.last_wal_check is None or
-                time.time() - self.last_wal_check > 1.0):
-            info("Update local wal triggered by inotify")
-            self.update_wal()
-            self.last_wal_check = time.time()
-        else:
-            debug("Skip wal check")
+        info("%s xlogs removed", xlog_removed)
 
-    def update_wal(self):
-        info("Updating metrics based on local archive_status")
+    def last_archive_status(self):
+        with psycopg2.connect(
+            host=os.getenv('PGHOST', 'localhost'),
+            port=os.getenv('PGPORT', '5432'),
+            user=os.getenv('PGUSER', 'postgres'),
+            password=os.getenv('PGPASSWORD'),
+            dbname=os.getenv('PGDATABASE', 'postgres'),
 
-        current_xlog_done = len(self.xlogs_done)
-        current_xlog_ready = len(self.xlogs_ready)
-        last_upload = 0
-        xlog_since_last_bb = 0
-        # Read the archive_status directory to find new done or ready xlog
+        ) as db_connection:
+            db_connection.autocommit = True
+            with db_connection.cursor(cursor_factory=DictCursor) as c:
+                c.execute("SELECT last_archived_wal, "
+                          "last_archived_time, "
+                          "last_failed_wal, "
+                          "last_failed_time "
+                          "FROM pg_stat_archiver")
+                res = c.fetchone()
+                if not bool(result):
+                    raise Exception("Cannot fetch archive status")
+                return res
+
+    def last_xlog_upload_callback(self):
+        archive_status = self.last_archive_status()
+        return archive_status['last_archived_time'].timestamp()
+
+    def xlog_ready_callback(self):
+        res = 0
         try:
             for f in os.listdir(archive_dir):
-                # Search for last xlog done
-                if DONE_WAL_RE.match(f):
-                    self.xlogs_done.add(f[0:-5])
-                    if f[0:-5] in self.xlogs_ready:
-                        self.xlogs_ready.remove(f[0:-5])
-                    mtime = os.stat(os.path.join(archive_dir, f)).st_mtime
-                    if mtime > last_upload:
-                        last_upload = mtime
                 # search for xlog waiting for upload
-                elif READY_WAL_RE.match(f):
-                    self.xlogs_ready.add(f[0:-6])
+                if READY_WAL_RE.match(f):
+                    res += 1
             self.xlog_exception = 0
         except FileNotFoundError:
             self.xlog_exception = 1
+        return res
 
-        info("ready diff: %s done diff: %s",
-             len(self.xlogs_ready) - current_xlog_ready,
-             len(self.xlogs_done) - current_xlog_done)
+    def xlog_done_callback(self):
+        info("Updating metrics based on pg_stat_archiver")
+
+        archive_status = self.last_archive_status()
+        last_xlog = max(self.xlogs_done)
+        # Check for errors
+        error_on_range = (archive_status['last_failed_wal'] is not None
+                          and archive_status['last_failed_wal'] > min(self.xlogs_done))
+        new_error = (archive_status['last_failed_wal'] is not None
+                     and archive_status['last_failed_wal'] < last_xlog)
+        self.xlog_exception = int(error_on_range or new_error)
+        xlog_added = 0
+        if archive_status['last_failed_wal'] < last_xlog:
+            # No error since last metrics update
+            # Add missing to reach 'last_archived_wal'
+            while is_before(last_xlog, archive_status['last_archived_wal']):
+                last_xlog = get_next_wal(last_xlog)
+                if not new_error or self.find_remote_xlog(last_xlog):
+                    self.xlog_done.add(last_xlog)
+                    xlog_added += 1
+                else:
+                    info("Missing xlog : %s", last_xlog)
+
+        info("Xlog added: %s", xlog_added)
         # compute metrics
         self.compute_complex_metrics()
-        if self.bbs:
-            last_bb_position = self.bbs[len(self.bbs) - 1]['wal_file_name']
-            for xlog in self.xlogs_done:
-                if is_before(last_bb_position, xlog):
-                    xlog_since_last_bb = xlog_since_last_bb + 1
-        self.xlog_since_last_bb.set(xlog_since_last_bb)
-        self.last_upload.labels('xlog').set(last_upload)
-        self.xlog_ready.set(len(self.xlogs_ready))
-        self.xlog_done.set(len(self.xlogs_done))
-        self.exception.set(self.basebackup_exception +
-                           self.xlog_exception +
-                           self.remote_exception)
+        return len(self.xlogs_done)
 
     def compute_complex_metrics(self):
         """
@@ -362,6 +406,15 @@ class Exporter():
         if self.bbs:
             self.useless_remote_wal_segment.set(useless_remote_wal)
 
+        # Compute xlog_since_last_basebackup
+        xlog_since_last_bb = 0
+        if self.bbs:
+            last_bb_position = self.bbs[len(self.bbs) - 1]['wal_file_name']
+            for xlog in self.xlogs_done:
+                if is_before(last_bb_position, xlog):
+                    xlog_since_last_bb = xlog_since_last_bb + 1
+        self.xlog_since_last_bb.set(xlog_since_last_bb)
+
 
 if __name__ == '__main__':
     info("Startup...")
@@ -374,17 +427,23 @@ if __name__ == '__main__':
     # Check if this is a master instance
     while True:
         try:
-            db_connection = psycopg2.connect(user="postgres",
-                                             database="postgres")
-            db_connection.autocommit = True
-            with db_connection.cursor() as c:
-                c.execute("SELECT NOT pg_is_in_recovery()")
-                result = c.fetchone()
-                if bool(result) and result[0]:
-                    break
-                else:
-                    info("Running on slave, waiting for promotion...")
-                    time.sleep(60)
+            with psycopg2.connect(
+                host=os.getenv('PGHOST', 'localhost'),
+                port=os.getenv('PGPORT', '5432'),
+                user=os.getenv('PGUSER', 'postgres'),
+                password=os.getenv('PGPASSWORD'),
+                dbname=os.getenv('PGDATABASE', 'postgres'),
+
+            ) as db_connection:
+                db_connection.autocommit = True
+                with db_connection.cursor() as c:
+                    c.execute("SELECT NOT pg_is_in_recovery()")
+                    result = c.fetchone()
+                    if bool(result) and result[0]:
+                        break
+                    else:
+                        info("Running on slave, waiting for promotion...")
+                        time.sleep(60)
         except Exception:
             error("Unable to connect postgres server, retrying in 60sec...")
             time.sleep(60)
@@ -395,16 +454,5 @@ if __name__ == '__main__':
     # listen to SIGHUP signal
     signal.signal(signal.SIGHUP, exporter.update_basebackup)
 
-    # Start inotify on the archive_status directory
-    wal_watcher = pyinotify.WatchManager()
-    notifier = pyinotify.Notifier(wal_watcher)
-    event_mask = (pyinotify.IN_CREATE |
-                  pyinotify.IN_DELETE |
-                  pyinotify.IN_MODIFY |
-                  pyinotify.IN_MOVED_FROM |
-                  pyinotify.IN_MOVED_TO)
-    wal_watcher.add_watch(archive_dir, event_mask)
-    info("Inotify watcher started on %s", archive_dir)
-
-    # Watch for events in archive_status
-    notifier.loop(callback=exporter.update_wal_callback)
+    while True:
+        time.sleep(1)
