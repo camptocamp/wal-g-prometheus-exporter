@@ -1,4 +1,4 @@
-version: "3"
+version: "2.2"
 services:
   #exporter:
   #  build: ./
@@ -15,6 +15,7 @@ services:
   postgres:
     image: camptocamp/postgres:12
     command: -c 'synchronous_commit=off' -c 'fsync=off' -c 'archive_mode=on' -c 'archive_command=/bin/wal-g wal-push %p'
+    cpu_count: 1
     environment:
       POSTGRES_PASSWORD: pgpass
       POSTGRES_USER: postgres
@@ -34,6 +35,7 @@ services:
 
   full-backup:
     image: camptocamp/postgres:12
+    cpu_count: 1
     entrypoint: ""
     command: /usr/local/bin/full-backup.sh
     environment:
@@ -48,6 +50,13 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./docker/full-backup.sh:/usr/local/bin/full-backup.sh
+
+  fix-wal-permissions:
+    image: camptocamp/postgres:12
+    entrypoint: /usr/local/bin/fix-wal-permissions.sh
+    volumes:
+      - ./wal:/mnt/wal
+      - ./docker/fix-wal-permissions.sh:/usr/local/bin/fix-wal-permissions.sh
 
   traffic:
     image: camptocamp/postgres:12
@@ -91,6 +100,7 @@ services:
   # Observability
   prometheus:
     image: prom/prometheus
+    cpu_count: 1
     volumes:
       - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus:/prometheus
@@ -99,8 +109,14 @@ services:
 
   grafana:
     image: grafana/grafana:6.7.3
+    cpu_count: 1
+    links:
+      - "prometheus"
     volumes:
       - grafana-data:/var/lib/grafana
+      - ./docker/grafana/datasource.yaml:/etc/grafana/provisioning/datasources/datasource.yaml
+      - ./docker/grafana/dashboards.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml
+      - ./docker/grafana/dashboard.json:/var/lib/grafana/dashboards/dashboard.json
     ports:
       - "3000:3000"
 
