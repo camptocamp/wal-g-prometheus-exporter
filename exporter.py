@@ -10,7 +10,6 @@ import time
 from logging import warning, info, debug, error  # noqa: F401
 from prometheus_client import start_http_server
 from prometheus_client import Gauge
-import pyinotify
 import boto3  # noqa: F401
 import botocore
 import psycopg2
