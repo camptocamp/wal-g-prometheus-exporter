@@ -283,11 +283,12 @@ class Exporter():
         ) as db_connection:
             db_connection.autocommit = True
             with db_connection.cursor(cursor_factory=DictCursor) as c:
-                c.execute("SELECT last_archived_wal, "
-                          "last_archived_time, "
-                          "last_failed_wal, "
-                          "last_failed_time "
-                          "FROM pg_stat_archiver")
+                c.execute('SELECT archived_count, failed_count, '
+                          'last_archived_wal, '
+                          'last_archived_time, '
+                          'last_failed_wal, '
+                          'last_failed_time '
+                          'FROM pg_stat_archiver')
                 res = c.fetchone()
                 if not bool(result):
                     raise Exception("Cannot fetch archive status")
@@ -315,19 +316,19 @@ class Exporter():
         archive_status = self.last_archive_status()
         last_xlog = max(self.xlogs_done)
         # Check for errors
+        # Check if there is archive error of segment that should be uploaded
         error_on_range = (archive_status['last_failed_wal'] is not None
                           and archive_status['last_failed_wal'] > min(self.xlogs_done))
+        # check if there is archive error since last check of archiver status
         new_error = (archive_status['last_failed_wal'] is not None
                      and archive_status['last_failed_wal'] < last_xlog)
         self.xlog_exception = int(error_on_range or new_error)
         xlog_added = 0
-        if archive_status['last_failed_wal'] < last_xlog:
-            # No error since last metrics update
-            # Add missing to reach 'last_archived_wal'
+        if archive_status['archived_count'] > 0:
             while is_before(last_xlog, archive_status['last_archived_wal']):
                 last_xlog = get_next_wal(last_xlog)
                 if not new_error or self.find_remote_xlog(last_xlog):
-                    self.xlog_done.add(last_xlog)
+                    self.xlogs_done.add(last_xlog)
                     xlog_added += 1
                 else:
                     info("Missing xlog : %s", last_xlog)
