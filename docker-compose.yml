@@ -110,8 +110,6 @@ services:
   grafana:
     image: grafana/grafana:6.7.3
     cpu_count: 1
-    links:
-      - "prometheus"
     volumes:
       - grafana-data:/var/lib/grafana
       - ./docker/grafana/datasource.yaml:/etc/grafana/provisioning/datasources/datasource.yaml
