@@ -100,6 +100,8 @@ class Exporter():
         self.bbs = []
         self.xlogs_done = set()
         self.last_wal_check = None
+        self.last_archive_check = None
+        self.archive_status = None
         botocore_session = botocore.session.get_session()
         self.s3_client = botocore_session.create_client(
             "s3",
@@ -273,6 +275,12 @@ class Exporter():
         info("%s xlogs removed", xlog_removed)
 
     def last_archive_status(self):
+        if self.last_archive_check is None or datetime.datetime.now().timestamp() - self.last_archive_check > 1:
+            self.archive_status = self._last_archive_status()
+            self.last_archive_check = datetime.datetime.now().timestamp()
+        return self.archive_status
+
+    def _last_archive_status(self):
         with psycopg2.connect(
             host=os.getenv('PGHOST', 'localhost'),
             port=os.getenv('PGPORT', '5432'),
