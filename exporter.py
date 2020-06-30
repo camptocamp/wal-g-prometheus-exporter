@@ -407,7 +407,7 @@ class Exporter():
         # Search for useless wal segments
         if self.bbs:
             first_wal_needed = self.bbs[0]['wal_file_name']
-            for wal in self.xlogs_done:
+            for wal in self.xlogs_done.copy():
                 if is_before(wal, first_wal_needed):
                     useless_remote_wal = useless_remote_wal + 1
 
