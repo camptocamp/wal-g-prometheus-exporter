@@ -38,7 +38,7 @@ archive_dir = args.archive_dir
 http_port = 9351
 DONE_WAL_RE = re.compile(r"^[A-F0-9]{24}\.done$")
 READY_WAL_RE = re.compile(r"^[A-F0-9]{24}\.ready$")
-S3_PREFIX_RE = re.compile(r"^s3://([^/]*)(.*)$")
+S3_PREFIX_RE = re.compile(r"^s3://([^/]*)(/(.*))?$")
 
 # TODO:
 # * walg_last_basebackup_duration
@@ -107,11 +107,18 @@ class Exporter():
             endpoint_url=os.getenv('AWS_ENDPOINT'),
             region_name=os.getenv('AWS_REGION'),
         )
-        s3_prefix = os.getenv('WALE_S3_PREFIX')
-        matches = S3_PREFIX_RE.match(s3_prefix)
+        matches = S3_PREFIX_RE.match(os.getenv('WALE_S3_PREFIX'))
 
         self.s3_bucket = matches.group(1)
-        self.s3_prefix = matches.group(2)
+        prefix = matches.group(3)
+        # Nomalize prefix, should not contain trailing slash
+        # If there is a prefix it must be seperate 'wal_005' with slash
+        # 'prefix/wal_005/' or 'wal_005/'
+        if prefix is None or len(prefix) == 0:
+            self.s3_prefix = 'wal_005/'
+        else:
+            self.s3_prefix = "%s/wal_005/" % prefix
+
 
         # Declare metrics
         self.basebackup_count = Gauge('walg_basebackup_count',
@@ -164,7 +171,7 @@ class Exporter():
     def find_remote_xlog(self, xlog):
         s3_args = {
             "Bucket": self.s3_bucket,
-            "Prefix": "%s/wal_005/%s.lz4" % (self.s3_prefix, xlog),
+            "Prefix": "%s%s.lz4" % (self.s3_prefix, xlog),
         }
         response = self.s3_client.list_objects_v2(**s3_args)
         for item in response.get("Contents", []):
@@ -180,7 +187,7 @@ class Exporter():
         while True:
             s3_args = {
                 "Bucket": self.s3_bucket,
-                "Prefix": "%s/wal_005/" % self.s3_prefix,
+                "Prefix": self.s3_prefix, # Prefix='prod-12/wal_005/'
             }
             if fetch_method == "V2" and continuation_token:
                 s3_args["ContinuationToken"] = continuation_token
