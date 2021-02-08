@@ -1,4 +1,5 @@
 import os
+import os.path
 import signal
 import subprocess
 import json
@@ -153,7 +154,8 @@ class Exporter():
                       self.bbs[len(self.bbs) - 1]['start_time']).total_seconds()
                      if self.bbs else 0)
         )
-
+        self.walg_backup_fuse = Gauge('walg_backup_fuse',"0 backup fuse is OK, 1 backup fuse is burnt")
+        self.walg_backup_fuse.set_function(self.backup_fuse_callback)
         # Fetch remote base backups
         self.update_basebackup()
 
@@ -255,6 +257,8 @@ class Exporter():
         else:
             return 0
 
+    def backup_fuse_callback(self):
+        return int(os.path.exists('/tmp/failed_pg_archive'))
 
 if __name__ == '__main__':
     info("Startup...")
