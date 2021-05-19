@@ -122,13 +122,13 @@ class Exporter():
         self.last_upload.labels('xlog').set_function(
             self.last_xlog_upload_callback)
         self.last_upload.labels('basebackup').set_function(
-            lambda: self.bbs[len(self.bbs) - 1]['time'].timestamp()
+            lambda: self.bbs[len(self.bbs) - 1]['start_time'].timestamp()
             if self.bbs else 0
         )
         self.oldest_basebackup = Gauge('walg_oldest_basebackup',
                                        'oldest full backup')
         self.oldest_basebackup.set_function(
-            lambda: self.bbs[0]['time'].timestamp() if self.bbs else 0
+            lambda: self.bbs[0]['start_time'].timestamp() if self.bbs else 0
         )
 
         self.xlog_ready = Gauge('walg_missing_remote_wal_segment_at_end',
@@ -172,7 +172,7 @@ class Exporter():
                                   "--detail", "--json"],
                                  capture_output=True, check=True)
             new_bbs = list(map(format_date, json.loads(res.stdout)))
-            new_bbs.sort(key=lambda bb: bb['time'])
+            new_bbs.sort(key=lambda bb: bb['start_time'])
             new_bbs_name = [bb['backup_name'] for bb in new_bbs]
             old_bbs_name = [bb['backup_name'] for bb in self.bbs]
             bb_deleted = 0
@@ -189,12 +189,13 @@ class Exporter():
                 if bb['backup_name'] not in old_bbs_name:
                     (self.basebackup.labels(bb['wal_file_name'],
                                             bb['start_lsn'])
-                     .set(bb['time'].timestamp()))
+                     .set(bb['start_time'].timestamp()))
             # Update backup list
             self.bbs = new_bbs
-            info("%s basebackups found (last: %s), %s deleted",
+            info("%s basebackups found (first: %s, last: %s), %s deleted",
                  len(self.bbs),
-                 self.bbs[len(self.bbs) - 1]['time'],
+                 self.bbs[0]['start_time'],
+                 self.bbs[len(self.bbs) - 1]['start_time'],
                  bb_deleted)
 
             self.basebackup_exception = False
