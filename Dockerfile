@@ -1,5 +1,5 @@
 # Build exporter
-FROM centos:7 AS exporter-builder
+FROM centos:8 AS exporter-builder
 
 WORKDIR /usr/src/
 ADD https://www.python.org/ftp/python/3.7.5/Python-3.7.5.tgz  /usr/src/
