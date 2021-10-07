@@ -8,6 +8,8 @@ import re
 import argparse
 import logging
 import time
+import threading
+
 from logging import warning, info, debug, error  # noqa: F401
 from prometheus_client import start_http_server
 from prometheus_client import Gauge
@@ -161,8 +163,7 @@ class Exporter():
 
     def update_basebackup(self, *unused):
         """
-            When this script receive a SIGHUP signal, it will call backup-list
-            and update metrics about basebackups
+            Update metrics about basebackup by calling backup-list
         """
 
         info('Updating basebackups metrics...')
@@ -296,8 +297,10 @@ if __name__ == '__main__':
     # Launch exporter
     exporter = Exporter()
 
-    # listen to SIGHUP signal
-    signal.signal(signal.SIGHUP, exporter.update_basebackup)
+    # The periodic interval to update basebackup metrics, defaults to 15 minutes
+    update_basebackup_interval = float(os.getenv("UPDATE_BASEBACKUP_INTERVAL", "900"))
 
-    while True:
-        time.sleep(1)
+    ticker = threading.Event()
+    while not ticker.wait(update_basebackup_interval):
+        exporter.update_basebackup()
+
