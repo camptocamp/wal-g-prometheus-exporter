@@ -290,8 +290,8 @@ if __name__ == '__main__':
                     else:
                         info("Running on slave, waiting for promotion...")
                         time.sleep(60)
-        except Exception:
-            error("Unable to connect postgres server, retrying in 60sec...")
+        except Exception as e:
+            error(f"Unable to connect to postgres server: {e}, retrying in 60sec...")
             time.sleep(60)
 
     # Launch exporter
@@ -303,4 +303,3 @@ if __name__ == '__main__':
     ticker = threading.Event()
     while not ticker.wait(update_basebackup_interval):
         exporter.update_basebackup()
-
