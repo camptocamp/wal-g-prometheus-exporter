@@ -156,6 +156,17 @@ class Exporter():
                       self.bbs[len(self.bbs) - 1]['start_time']).total_seconds()
                      if self.bbs else 0)
         )
+        self.last_backup_size = Gauge('walg_last_backup_size',
+                                 'Size of last uploaded backup. Label compressed=yes for  compressed size and no for uncompressed ',
+                                 ['compressed'])
+        self.last_backup_size.labels('no').set_function(
+            lambda: (self.bbs[len(self.bbs) - 1]['uncompressed_size']
+                    if self.bbs else 0)
+        )
+        self.last_backup_size.labels('yes').set_function(
+            lambda: (self.bbs[len(self.bbs) - 1]['compressed_size']
+                    if self.bbs else 0)
+        )
         self.walg_backup_fuse = Gauge('walg_backup_fuse',"0 backup fuse is OK, 1 backup fuse is burnt")
         self.walg_backup_fuse.set_function(self.backup_fuse_callback)
         # Fetch remote base backups
