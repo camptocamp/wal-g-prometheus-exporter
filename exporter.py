@@ -40,8 +40,6 @@ http_port = 9351
 DONE_WAL_RE = re.compile(r"^[A-F0-9]{24}\.done$")
 READY_WAL_RE = re.compile(r"^[A-F0-9]{24}\.ready$")
 
-# TODO:
-# * walg_last_basebackup_duration
 
 # Base backup update
 # ------------------
@@ -121,8 +119,12 @@ class Exporter():
         self.last_upload = Gauge('walg_last_upload',
                                  'Last upload of incremental or full backup',
                                  ['type'])
-        self.last_upload.labels('xlog').set_function(
-            self.last_xlog_upload_callback)
+        #Set the time of last uplaod to 0 if none is retieved from pg_stat_archiver table
+        if self.last_xlog_upload_callback is not None:
+            self.last_upload.labels('xlog').set('0.0')
+        else:
+            self.last_upload.labels('xlog').set_function(
+                self.last_xlog_upload_callback)
         self.last_upload.labels('basebackup').set_function(
             lambda: self.bbs[len(self.bbs) - 1]['start_time'].timestamp()
             if self.bbs else 0
@@ -235,19 +237,22 @@ class Exporter():
             db_connection.autocommit = True
             with db_connection.cursor(cursor_factory=DictCursor) as c:
                 c.execute('SELECT archived_count, failed_count, '
-                          'last_archived_wal, '
-                          'last_archived_time, '
-                          'last_failed_wal, '
-                          'last_failed_time '
-                          'FROM pg_stat_archiver')
+                        'last_archived_wal, '
+                        'last_archived_time, '
+                        'last_failed_wal, '
+                        'last_failed_time '
+                        'FROM pg_stat_archiver')
                 res = c.fetchone()
-                if not bool(result):
-                    raise Exception("Cannot fetch archive status")
-                return res
+            # When last_archived_wal & last_archived_time have no values in pg_stat_archiver table (i.e.: archive_mode='off' )
+            if not (bool(res[2]) and bool(res[3])):
+                info("Cannot fetch archive status. Postgresql archive_mode should be enabled")
+                self.xlog_exception = True
+            return res
 
     def last_xlog_upload_callback(self):
         archive_status = self.last_archive_status()
-        return archive_status['last_archived_time'].timestamp()
+        if archive_status['last_archived_time'] is not None:
+            return archive_status['last_archived_time'].timestamp()
 
     def xlog_ready_callback(self):
         res = 0
@@ -263,8 +268,8 @@ class Exporter():
 
     def xlog_since_last_bb_callback(self):
         # Compute xlog_since_last_basebackup
-        if self.bbs:
-            archive_status = self.last_archive_status()
+        archive_status = self.last_archive_status()
+        if self.bbs and archive_status['last_archived_wal'] is not None:
             return wal_diff(archive_status['last_archived_wal'],
                             self.bbs[len(self.bbs) - 1]['wal_file_name'])
         else:
