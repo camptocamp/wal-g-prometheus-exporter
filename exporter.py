@@ -104,6 +104,7 @@ class Exporter():
     def __init__(self):
         self.basebackup_exception = False
         self.xlog_exception = False
+        self.remote_exception = False
         self.bbs = []
         self.last_archive_check = None
         self.archive_status = None
@@ -140,12 +141,14 @@ class Exporter():
         self.xlog_ready.set_function(self.xlog_ready_callback)
 
         self.exception = Gauge('walg_exception',
-                               'Wal-g exception: 2 for basebackup error, '
-                               '3 for xlog error and '
-                               '5 for remote error')
+                               'Wal-g exception:0 for no exception'
+                               '1 for basebackup error, '
+                               '2 for xlog error and '
+                               '3 for remote error')
         self.exception.set_function(
-            lambda: (1 if self.basebackup_exception else 0 +
-                     2 if self.xlog_exception else 0))
+            lambda: (1 if self.basebackup_exception else (2 if self.xlog_exception else (3 if self.remote_exception else 0)
+                ))
+            )
 
         self.xlog_since_last_bb = Gauge('walg_xlogs_since_basebackup',
                                         'Xlog uploaded since last base backup')
@@ -214,7 +217,10 @@ class Exporter():
 
             self.basebackup_exception = False
         except subprocess.CalledProcessError as e:
-            error(e)
+            error(res.stdout)
+            self.remote_exception = True
+        except json.decoder.JSONDecodeError:
+            info(res.stdout)
             self.basebackup_exception = True
 
     def last_archive_status(self):
