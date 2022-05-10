@@ -1,4 +1,4 @@
 #boto3
 prometheus_client
-psycopg2
+psycopg2-binary
 pyinstaller
