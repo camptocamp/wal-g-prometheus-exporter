@@ -41,9 +41,15 @@ parser.add_argument("archive_dir",
 parser.add_argument("--debug", help="enable debug log", action="store_true")
 args = parser.parse_args()
 if args.debug:
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(
+        format='%(asctime)s %(levelname)-8s %(message)s',
+        level=logging.DEBUG,
+        datefmt='%Y-%m-%d %H:%M:%S')
 else:
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(
+        format='%(asctime)s %(levelname)-8s %(message)s',
+        level=logging.DEBUG,
+        datefmt='%Y-%m-%d %H:%M:%S')
 
 # Disable logging of libs
 for key in logging.Logger.manager.loggerDict:
@@ -127,14 +133,16 @@ class Exporter():
         # Declare metrics
         self.basebackup = Gauge('walg_basebackup',
                                 'Remote Basebackups',
-                                ['start_wal_segment', 'start_lsn'])
+                                ['start_wal_segment', 'start_lsn'],
+                                unit='seconds')
         self.basebackup_count = Gauge('walg_basebackup_count',
                                       'Remote Basebackups count')
         self.basebackup_count.set_function(lambda: len(self.bbs))
 
         self.last_upload = Gauge('walg_last_upload',
                                  'Last upload of incremental or full backup',
-                                 ['type'])
+                                 ['type'],
+                                 unit='seconds')
         #Set the time of last uplaod to 0 if none is retieved from pg_stat_archiver table
         if self.last_xlog_upload_callback is not None:
             self.last_upload.labels('xlog').set('0.0')
@@ -146,7 +154,8 @@ class Exporter():
             if self.bbs else 0
         )
         self.oldest_basebackup = Gauge('walg_oldest_basebackup',
-                                       'oldest full backup')
+                                       'oldest full backup',
+                                       unit='seconds')
         self.oldest_basebackup.set_function(
             lambda: self.bbs[0]['start_time'].timestamp() if self.bbs else 0
         )
@@ -180,8 +189,9 @@ class Exporter():
                      if self.bbs else 0)
         )
         self.last_backup_size = Gauge('walg_last_backup_size',
-                                 'Size of last uploaded backup. Label compressed=yes for  compressed size and no for uncompressed ',
-                                 ['compressed'])
+                                 'Size of last uploaded backup. Label compression="compressed" for  compressed size and compression="uncompressed" for uncompressed ',
+                                 ['compression'],
+                                 unit='octets')
         self.last_backup_size.labels('no').set_function(
             lambda: (self.bbs[len(self.bbs) - 1]['uncompressed_size']
                     if self.bbs else 0)
@@ -336,7 +346,7 @@ if __name__ == '__main__':
 
     info("Checking on directory %s if valid ...", archive_dir)
     if valid_archiv_dir(archive_dir):
-        info("%s is a complete path to a Postgresql base directory", archive_dir)
+        info("%s is a complete path to a Postgresql data directory", archive_dir)
     else:
         error("Invalid Argument %s. It is not a path to a Postgresql data directory", archive_dir)
         sys.exit()
