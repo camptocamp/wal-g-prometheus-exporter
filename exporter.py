@@ -8,6 +8,7 @@ import re
 import argparse
 import logging
 import time
+import sys
 import threading
 
 from logging import warning, info, debug, error  # noqa: F401
@@ -19,6 +20,20 @@ from psycopg2.extras import DictCursor
 
 # Configuration
 # -------------
+
+# Function to check that archiv_dir argument is valid
+def valid_archiv_dir(dir):
+    found = False
+    pg_dir = os.getenv('PGDATA',"/var/lib/postgresql" )
+    try:
+        for root, dirs, files in os.walk(dir, topdown=True):
+            if bool(re.match('^' + pg_dir + '/[0-9]+/.+/pg_wal/archive_status', os.path.join(os.getcwd(), root))):
+                found = True
+                break
+    except FileNotFoundError as e:
+        error(e)
+    return found
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument("archive_dir",
@@ -141,14 +156,17 @@ class Exporter():
         self.xlog_ready.set_function(self.xlog_ready_callback)
 
         self.exception = Gauge('walg_exception',
-                               'Wal-g exception:0 for no exception'
+                               'Wal-g exception: '
+                               '0 for no exception, '
                                '1 for basebackup error, '
-                               '2 for xlog error and '
-                               '3 for remote error')
+                               '2 for xlog error,  '
+                               '4 for remote error, '
+                               '6 for xlog and remote errors, '
+                               '3 for basebackup and xlog errors ')
         self.exception.set_function(
-            lambda: (1 if self.basebackup_exception else (2 if self.xlog_exception else (3 if self.remote_exception else 0)
-                ))
-            )
+            lambda: ((1 if self.basebackup_exception else 0) +
+                     (2 if self.xlog_exception else 0) +
+                     (4 if self.remote_exception else 0) ))
 
         self.xlog_since_last_bb = Gauge('walg_xlogs_since_basebackup',
                                         'Xlog uploaded since last base backup')
@@ -217,10 +235,10 @@ class Exporter():
 
             self.basebackup_exception = False
         except subprocess.CalledProcessError as e:
-            error(res.stdout)
+            error(e.stderr)
             self.remote_exception = True
         except json.decoder.JSONDecodeError:
-            info(res.stdout)
+            info(res.stderr)
             self.basebackup_exception = True
 
     def last_archive_status(self):
@@ -267,9 +285,9 @@ class Exporter():
                 # search for xlog waiting for upload
                 if READY_WAL_RE.match(f):
                     res += 1
-            self.xlog_exception = 0
+                    self.xlog_exception = False
         except FileNotFoundError:
-            self.xlog_exception = 1
+            self.xlog_exception = True
         return res
 
     def xlog_since_last_bb_callback(self):
@@ -315,6 +333,13 @@ if __name__ == '__main__':
         except Exception as e:
             error(f"Unable to connect to postgres server: {e}, retrying in 60sec...")
             time.sleep(60)
+
+    info("Checking on directory %s if valid ...", archive_dir)
+    if valid_archiv_dir(archive_dir):
+        info("%s is a complete path to a Postgresql base directory", archive_dir)
+    else:
+        error("Invalid Argument %s. It is not a path to a Postgresql data directory", archive_dir)
+        sys.exit()
 
     # Launch exporter
     exporter = Exporter()
