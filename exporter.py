@@ -166,12 +166,12 @@ class Exporter():
 
         self.exception = Gauge('walg_exception',
                                'Wal-g exception: '
-                               '0 for no exception, '
-                               '1 for basebackup error, '
-                               '2 for xlog error,  '
-                               '4 for remote error, '
-                               '6 for xlog and remote errors, '
-                               '3 for basebackup and xlog errors ')
+                               '0 : no exception everything is OK, '
+                               '1 : no basebackups found in remote, '
+                               '2 : no archives found in local,  '
+                               '3 : basebackup and xlog errors '
+                               '4 : remote is unreachable, '
+                               '6 : no archives found in local & remote is unreachable , ')
         self.exception.set_function(
             lambda: ((1 if self.basebackup_exception else 0) +
                      (2 if self.xlog_exception else 0) +
