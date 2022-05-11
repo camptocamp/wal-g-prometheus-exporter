@@ -21,23 +21,7 @@ from psycopg2.extras import DictCursor
 # Configuration
 # -------------
 
-# Function to check that archiv_dir argument is valid
-def valid_archiv_dir(dir):
-    found = False
-    pg_dir = os.getenv('PGDATA',"/var/lib/postgresql" )
-    try:
-        for root, dirs, files in os.walk(dir, topdown=True):
-            if bool(re.match('^' + pg_dir + '/[0-9]+/.+/pg_wal/archive_status', os.path.join(os.getcwd(), root))):
-                found = True
-                break
-    except FileNotFoundError as e:
-        error(e)
-    return found
-
-
 parser = argparse.ArgumentParser()
-parser.add_argument("archive_dir",
-                    help="pg_wal/archive_status/ Directory location")
 parser.add_argument("--debug", help="enable debug log", action="store_true")
 args = parser.parse_args()
 if args.debug:
@@ -56,11 +40,7 @@ for key in logging.Logger.manager.loggerDict:
     if key != 'root':
         logging.getLogger(key).setLevel(logging.WARNING)
 
-archive_dir = args.archive_dir
-http_port = 9351
-DONE_WAL_RE = re.compile(r"^[A-F0-9]{24}\.done$")
-READY_WAL_RE = re.compile(r"^[A-F0-9]{24}\.ready$")
-
+http_port = os.getenv("WALG_EXPORTER_PORT", "9351")
 
 # Base backup update
 # ------------------
@@ -191,12 +171,12 @@ class Exporter():
         self.last_backup_size = Gauge('walg_last_backup_size',
                                  'Size of last uploaded backup. Label compression="compressed" for  compressed size and compression="uncompressed" for uncompressed ',
                                  ['compression'],
-                                 unit='octets')
-        self.last_backup_size.labels('no').set_function(
+                                 unit='bytes')
+        self.last_backup_size.labels('compressed').set_function(
             lambda: (self.bbs[len(self.bbs) - 1]['uncompressed_size']
                     if self.bbs else 0)
         )
-        self.last_backup_size.labels('yes').set_function(
+        self.last_backup_size.labels('uncompressed').set_function(
             lambda: (self.bbs[len(self.bbs) - 1]['compressed_size']
                     if self.bbs else 0)
         )
@@ -277,11 +257,11 @@ class Exporter():
                         'last_failed_time '
                         'FROM pg_stat_archiver')
                 res = c.fetchone()
-            # When last_archived_wal & last_archived_time have no values in pg_stat_archiver table (i.e.: archive_mode='off' )
-            if not (bool(res[2]) and bool(res[3])):
-                info("Cannot fetch archive status. Postgresql archive_mode should be enabled")
-                self.xlog_exception = True
-            return res
+        # When last_archived_wal & last_archived_time have no values in pg_stat_archiver table (i.e.: archive_mode='off' )
+        if not (bool(res[2]) and bool(res[3])):
+            info("Cannot fetch archive status. Postgresql archive_mode should be enabled")
+            self.xlog_exception = True
+        return res
 
     def last_xlog_upload_callback(self):
         archive_status = self.last_archive_status()
@@ -289,16 +269,20 @@ class Exporter():
             return archive_status['last_archived_time'].timestamp()
 
     def xlog_ready_callback(self):
-        res = 0
-        try:
-            for f in os.listdir(archive_dir):
-                # search for xlog waiting for upload
-                if READY_WAL_RE.match(f):
-                    res += 1
-                    self.xlog_exception = False
-        except FileNotFoundError:
-            self.xlog_exception = True
+        with psycopg2.connect(
+            host=os.getenv('PGHOST', 'localhost'),
+            port=os.getenv('PGPORT', '5432'),
+            user=os.getenv('PGUSER', 'postgres'),
+            password=os.getenv('PGPASSWORD'),
+            dbname=os.getenv('PGDATABASE', 'postgres'),
+
+        ) as db_connection:
+            db_connection.autocommit = True
+            with db_connection.cursor(cursor_factory=DictCursor) as c:
+                c.execute("SELECT COUNT(*) FROM pg_ls_dir('pg_wal') WHERE pg_ls_dir ~ '^[0-9A-F]{24}.ready';")
+                res = c.fetchone()
         return res
+
 
     def xlog_since_last_bb_callback(self):
         # Compute xlog_since_last_basebackup
@@ -343,13 +327,6 @@ if __name__ == '__main__':
         except Exception as e:
             error(f"Unable to connect to postgres server: {e}, retrying in 60sec...")
             time.sleep(60)
-
-    info("Checking on directory %s if valid ...", archive_dir)
-    if valid_archiv_dir(archive_dir):
-        info("%s is a complete path to a Postgresql data directory", archive_dir)
-    else:
-        error("Invalid Argument %s. It is not a path to a Postgresql data directory", archive_dir)
-        sys.exit()
 
     # Launch exporter
     exporter = Exporter()
