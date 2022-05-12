@@ -21,6 +21,7 @@ from psycopg2.extras import DictCursor
 # Configuration
 # -------------
 
+parser = argparse.ArgumentParser()
 parser.add_argument("--debug", help="enable debug log", action="store_true")
 args = parser.parse_args()
 if args.debug:
