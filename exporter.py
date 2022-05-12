@@ -40,7 +40,7 @@ for key in logging.Logger.manager.loggerDict:
     if key != 'root':
         logging.getLogger(key).setLevel(logging.WARNING)
 
-http_port = os.getenv("WALG_EXPORTER_PORT", "9351")
+http_port = int(os.getenv("WALG_EXPORTER_PORT", "9351"))
 
 # Base backup update
 # ------------------
