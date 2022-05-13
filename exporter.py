@@ -278,10 +278,10 @@ class Exporter():
 
         ) as db_connection:
             db_connection.autocommit = True
-            with db_connection.cursor(cursor_factory=DictCursor) as c:
-                c.execute("SELECT COUNT(*) FROM pg_ls_dir('pg_wal') WHERE pg_ls_dir ~ '^[0-9A-F]{24}.ready';")
+            with db_connection.cursor(cursor_factory=psycopg2.extras.DictCursor) as c:
+                c.execute("SELECT COUNT(*) FROM pg_ls_archive_statusdir() WHERE pg_ls_archive_statusdir.name ~ '^[0-9A-F]{24}.ready';")
                 res = c.fetchone()
-        return res
+        return res[0]
 
 
     def xlog_since_last_bb_callback(self):
