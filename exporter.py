@@ -173,15 +173,13 @@ class Exporter():
                                  ['compression'],
                                  unit='bytes')
         self.last_backup_size.labels('compressed').set_function(
-            lambda: (self.bbs[len(self.bbs) - 1]['uncompressed_size']
-                    if self.bbs else 0)
-        )
-        self.last_backup_size.labels('uncompressed').set_function(
             lambda: (self.bbs[len(self.bbs) - 1]['compressed_size']
                     if self.bbs else 0)
         )
-        self.walg_backup_fuse = Gauge('walg_backup_fuse',"0 backup fuse is OK, 1 backup fuse is burnt")
-        self.walg_backup_fuse.set_function(self.backup_fuse_callback)
+        self.last_backup_size.labels('uncompressed').set_function(
+            lambda: (self.bbs[len(self.bbs) - 1]['uncompressed_size']
+                    if self.bbs else 0)
+        )
         # Fetch remote base backups
         self.update_basebackup()
 
@@ -292,9 +290,6 @@ class Exporter():
                             self.bbs[len(self.bbs) - 1]['wal_file_name'])
         else:
             return 0
-
-    def backup_fuse_callback(self):
-        return int(os.path.exists('/tmp/failed_pg_archive'))
 
 if __name__ == '__main__':
     info("Startup...")
