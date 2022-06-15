@@ -99,6 +99,11 @@ def wal_diff(a, b):
     b_int = int(b[8:16], 16) * 0x100 + int(b[16:24], 16)
     return a_int - b_int
 
+def is_delta(bb):
+    if re.match(r"^.*_D_.*$", bb['backup_name']):
+        return 'delta'
+    else:
+        return 'full'
 
 class Exporter():
 
@@ -113,7 +118,7 @@ class Exporter():
         # Declare metrics
         self.basebackup = Gauge('walg_basebackup',
                                 'Remote Basebackups',
-                                ['start_wal_segment', 'start_lsn'],
+                                ['start_wal_segment', 'start_lsn', 'backup'],
                                 unit='seconds')
         self.basebackup_count = Gauge('walg_basebackup_count',
                                       'Remote Basebackups count')
@@ -162,7 +167,8 @@ class Exporter():
         self.xlog_since_last_bb.set_function(self.xlog_since_last_bb_callback)
 
         self.last_backup_duration = Gauge('walg_last_backup_duration',
-                                          'Duration of the last full backup')
+                                          'Duration of the last full backup',
+                                          unit='seconds')
         self.last_backup_duration.set_function(
             lambda: ((self.bbs[len(self.bbs) - 1]['finish_time'] -
                       self.bbs[len(self.bbs) - 1]['start_time']).total_seconds()
@@ -211,7 +217,7 @@ class Exporter():
             for bb in new_bbs:
                 if bb['backup_name'] not in old_bbs_name:
                     (self.basebackup.labels(bb['wal_file_name'],
-                                            bb['start_lsn'])
+                                            bb['start_lsn'], is_delta(bb))
                      .set(bb['start_time'].timestamp()))
             # Update backup list
             self.bbs = new_bbs
