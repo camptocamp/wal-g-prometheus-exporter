@@ -102,9 +102,9 @@ def wal_diff(a, b):
 def is_delta(bb):
     if re.match(r"^.*_D_.*$", bb['backup_name']):
         return 'delta'
-
     else:
         return 'full'
+
 class Exporter():
 
     def __init__(self):
@@ -126,23 +126,22 @@ class Exporter():
 
         self.last_upload = Gauge('walg_last_upload',
                                  'Last upload of incremental or full backup',
-                                 ['type', 'backup'],
+                                 ['type'],
                                  unit='seconds')
         #Set the time of last uplaod to 0 if none is retieved from pg_stat_archiver table
         if self.last_xlog_upload_callback is not None:
-            self.last_upload.labels('xlog', is_delta(self.bbs[len(self.bbs) - 1])).set('0.0')
+            self.last_upload.labels('xlog').set('0.0')
         else:
-            self.last_upload.labels('xlog', is_delta(self.bbs[len(self.bbs) - 1])).set_function(
+            self.last_upload.labels('xlog').set_function(
                 self.last_xlog_upload_callback)
-        self.last_upload.labels('basebackup', is_delta(self.bbs[len(self.bbs) - 1])).set_function(
+        self.last_upload.labels('basebackup').set_function(
             lambda: self.bbs[len(self.bbs) - 1]['start_time'].timestamp()
             if self.bbs else 0
         )
         self.oldest_basebackup = Gauge('walg_oldest_basebackup',
                                        'oldest full backup',
-                                       ['backup'],
                                        unit='seconds')
-        self.oldest_basebackup.labels(is_delta(self.bbs[0])).set_function(
+        self.oldest_basebackup.set_function(
             lambda: self.bbs[0]['start_time'].timestamp() if self.bbs else 0
         )
 
@@ -169,22 +168,21 @@ class Exporter():
 
         self.last_backup_duration = Gauge('walg_last_backup_duration',
                                           'Duration of the last full backup',
-                                          ['backup'],
                                           unit='seconds')
-        self.last_backup_duration.labels(is_delta(self.bbs[len(self.bbs) - 1])).set_function(
+        self.last_backup_duration.set_function(
             lambda: ((self.bbs[len(self.bbs) - 1]['finish_time'] -
                       self.bbs[len(self.bbs) - 1]['start_time']).total_seconds()
                      if self.bbs else 0)
         )
         self.last_backup_size = Gauge('walg_last_backup_size',
                                  'Size of last uploaded backup. Label compression="compressed" for  compressed size and compression="uncompressed" for uncompressed ',
-                                 ['compression', 'backup'],
+                                 ['compression'],
                                  unit='bytes')
-        self.last_backup_size.labels('compressed', is_delta(self.bbs[len(self.bbs) - 1])).set_function(
+        self.last_backup_size.labels('compressed').set_function(
             lambda: (self.bbs[len(self.bbs) - 1]['compressed_size']
                     if self.bbs else 0)
         )
-        self.last_backup_size.labels('uncompressed', is_delta(self.bbs[len(self.bbs) - 1])).set_function(
+        self.last_backup_size.labels('uncompressed').set_function(
             lambda: (self.bbs[len(self.bbs) - 1]['uncompressed_size']
                     if self.bbs else 0)
         )
