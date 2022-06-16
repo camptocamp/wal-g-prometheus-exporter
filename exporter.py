@@ -102,9 +102,9 @@ def wal_diff(a, b):
 def is_delta(bb):
     if re.match(r"^.*_D_.*$", bb['backup_name']):
         return 'delta'
-
     else:
         return 'full'
+
 class Exporter():
 
     def __init__(self):
@@ -130,11 +130,11 @@ class Exporter():
                                  unit='seconds')
         #Set the time of last uplaod to 0 if none is retieved from pg_stat_archiver table
         if self.last_xlog_upload_callback is not None:
-            self.last_upload.labels('xlog', is_delta(self.bbs[len(self.bbs) - 1])).set('0.0')
+            self.last_upload.labels('xlog', lambda: (is_delta(self.bbs[len(self.bbs) - 1]) if self.bbs else 'N/A')).set('0.0')
         else:
-            self.last_upload.labels('xlog', is_delta(self.bbs[len(self.bbs) - 1])).set_function(
+            self.last_upload.labels('xlog', lambda: (is_delta(self.bbs[len(self.bbs) - 1]) if self.bbs else 'N/A')).set_function(
                 self.last_xlog_upload_callback)
-        self.last_upload.labels('basebackup', is_delta(self.bbs[len(self.bbs) - 1])).set_function(
+        self.last_upload.labels('basebackup', lambda: (is_delta(self.bbs[len(self.bbs) - 1]) if self.bbs else 'N/A')).set_function(
             lambda: self.bbs[len(self.bbs) - 1]['start_time'].timestamp()
             if self.bbs else 0
         )
@@ -142,7 +142,7 @@ class Exporter():
                                        'oldest full backup',
                                        ['backup'],
                                        unit='seconds')
-        self.oldest_basebackup.labels(is_delta(self.bbs[0])).set_function(
+        self.oldest_basebackup.labels(lambda: (is_delta(self.bbs[0]) if self.bbs else 'N/A')).set_function(
             lambda: self.bbs[0]['start_time'].timestamp() if self.bbs else 0
         )
 
@@ -171,7 +171,7 @@ class Exporter():
                                           'Duration of the last full backup',
                                           ['backup'],
                                           unit='seconds')
-        self.last_backup_duration.labels(is_delta(self.bbs[len(self.bbs) - 1])).set_function(
+        self.last_backup_duration.labels(lambda: (is_delta(self.bbs[len(self.bbs) - 1]) if self.bbs else 'N/A')).set_function(
             lambda: ((self.bbs[len(self.bbs) - 1]['finish_time'] -
                       self.bbs[len(self.bbs) - 1]['start_time']).total_seconds()
                      if self.bbs else 0)
@@ -180,11 +180,11 @@ class Exporter():
                                  'Size of last uploaded backup. Label compression="compressed" for  compressed size and compression="uncompressed" for uncompressed ',
                                  ['compression', 'backup'],
                                  unit='bytes')
-        self.last_backup_size.labels('compressed', is_delta(self.bbs[len(self.bbs) - 1])).set_function(
+        self.last_backup_size.labels('compressed', lambda: (is_delta(self.bbs[len(self.bbs) - 1]) if self.bbs else 'N/A')).set_function(
             lambda: (self.bbs[len(self.bbs) - 1]['compressed_size']
                     if self.bbs else 0)
         )
-        self.last_backup_size.labels('uncompressed', is_delta(self.bbs[len(self.bbs) - 1])).set_function(
+        self.last_backup_size.labels('uncompressed', lambda: (is_delta(self.bbs[len(self.bbs) - 1]) if self.bbs else 'N/A')).set_function(
             lambda: (self.bbs[len(self.bbs) - 1]['uncompressed_size']
                     if self.bbs else 0)
         )
