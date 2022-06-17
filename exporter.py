@@ -130,6 +130,7 @@ class Exporter():
                                  unit='seconds')
         #Set the time of last uplaod to 0 if none is retieved from pg_stat_archiver table
         if self.last_xlog_upload_callback is not None:
+
             self.last_upload.labels('xlog').set('0.0')
         else:
             self.last_upload.labels('xlog').set_function(
@@ -142,6 +143,7 @@ class Exporter():
                                        'oldest full backup',
                                        unit='seconds')
         self.oldest_basebackup.set_function(
+
             lambda: self.bbs[0]['start_time'].timestamp() if self.bbs else 0
         )
 
@@ -170,6 +172,7 @@ class Exporter():
                                           'Duration of the last full backup',
                                           unit='seconds')
         self.last_backup_duration.set_function(
+
             lambda: ((self.bbs[len(self.bbs) - 1]['finish_time'] -
                       self.bbs[len(self.bbs) - 1]['start_time']).total_seconds()
                      if self.bbs else 0)
@@ -182,7 +185,7 @@ class Exporter():
             lambda: (self.bbs[len(self.bbs) - 1]['compressed_size']
                     if self.bbs else 0)
         )
-        self.last_backup_size.labels('uncompressed').set_function(
+
             lambda: (self.bbs[len(self.bbs) - 1]['uncompressed_size']
                     if self.bbs else 0)
         )
