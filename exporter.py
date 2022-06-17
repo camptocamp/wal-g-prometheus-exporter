@@ -168,10 +168,10 @@ class Exporter():
         self.xlog_since_last_bb.set_function(self.xlog_since_last_bb_callback)
 
         self.last_backup_duration = Gauge('walg_last_backup_duration',
-                                          'Duration of the last full backup',
-                                          ['backup'],
+                                          'Duration of the last full backup'
                                           unit='seconds')
-        self.last_backup_duration.labels(lambda: (is_delta(self.bbs[len(self.bbs) - 1]) if self.bbs else 'N/A')).set_function(
+        self.last_backup_duration.set_function(
+
             lambda: ((self.bbs[len(self.bbs) - 1]['finish_time'] -
                       self.bbs[len(self.bbs) - 1]['start_time']).total_seconds()
                      if self.bbs else 0)
