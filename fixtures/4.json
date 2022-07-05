@@ -1,0 +1,19 @@
+[
+    {
+        "backup_name": "base_0000000300000000000014B3",
+        "time": "2022-07-05T13:25:55Z",
+        "wal_file_name": "0000000300000000000014B3",
+        "start_time": "2022-07-05T13:25:09.476405Z",
+        "finish_time": "2022-07-05T13:25:54.078945Z",
+        "date_fmt": "%Y-%m-%dT%H:%M:%S.%fZ",
+        "hostname": "ppapprfdb1",
+        "data_dir": "/var/lib/postgresql/14/apprfdb",
+        "pg_version": 140004,
+        "start_lsn": 88910153680,
+        "finish_lsn": 88912016328,
+        "is_permanent": false,
+        "system_identifier": 7111678471382348119,
+        "uncompressed_size": 8986658816,
+        "compressed_size": 4206879253
+    }
+]
