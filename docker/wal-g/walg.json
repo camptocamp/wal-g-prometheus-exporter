@@ -1,0 +1,6 @@
+{
+  "pghost": "/var/run/postgresql",
+  "walg_s3_prefix": "s3://MY_BUCKET_NAME",
+  "walg_prevent_wal_overwrite": "true",
+  "walg_delta_max_steps": "7"
+}

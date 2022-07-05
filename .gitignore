@@ -7,3 +7,4 @@ wal-g-prometheus-exporter
 __pycache__/
 .*.swp
 exporter.spec
+wal/
