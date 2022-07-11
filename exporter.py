@@ -298,7 +298,7 @@ if __name__ == '__main__':
     exporter = Exporter()
 
     # The periodic interval to update basebackup metrics, defaults to 15 minutes
-    update_basebackup_interval = float(os.getenv("UPDATE_BASEBACKUP_INTERVAL", "900"))
+    update_basebackup_interval = float(os.getenv("UPDATE_BASEBACKUP_INTERVAL", "120"))
 
     ticker = threading.Event()
     while not ticker.wait(update_basebackup_interval):
