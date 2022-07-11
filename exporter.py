@@ -116,11 +116,13 @@ class Exporter():
         self.archive_status = None
 
         # Declare metrics
+
         self.basebackup = Gauge('walg_basebackup', 'Remote Basebackups', ['start_wal_segment', 'start_lsn', 'backup'], unit='seconds')
         self.basebackup_count = Gauge('walg_basebackup_count', 'Remote Basebackups count')
         self.last_upload = Gauge('walg_last_upload', 'Last upload of incremental or full backup', ['type'], unit='seconds')
         self.oldest_basebackup = Gauge('walg_oldest_basebackup', 'oldest full backup',  unit='seconds')
         self.xlog_ready = Gauge('walg_missing_remote_wal_segment_at_end', 'Xlog ready for upload')
+
         self.exception = Gauge('walg_exception',
                                'Wal-g exception: '
                                '0 : no exception everything is OK, '
@@ -139,7 +141,6 @@ class Exporter():
         self.fetch_metrics()
 
     def fetch_metrics(self):
-
         self.update_basebackup()
         self.basebackup_count.set_function(lambda: len(self.bbs))
         if self.last_xlog_upload_callback is not None:
