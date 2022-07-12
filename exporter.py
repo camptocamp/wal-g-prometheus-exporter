@@ -104,6 +104,13 @@ def is_delta(bb):
         return 'full'
 
 
+def is_delta(bb):
+    if re.match(r"^.*_D_.*$", bb['backup_name']):
+        return 'delta'
+    else:
+        return 'full'
+
+
 class Exporter():
 
     def __init__(self):
@@ -115,11 +122,13 @@ class Exporter():
         self.archive_status = None
 
         # Declare metrics
+
         self.basebackup = Gauge('walg_basebackup', 'Remote Basebackups', ['start_wal_segment', 'start_lsn', 'backup'], unit='seconds')
         self.basebackup_count = Gauge('walg_basebackup_count', 'Remote Basebackups count')
         self.last_upload = Gauge('walg_last_upload', 'Last upload of incremental or full backup', ['type'], unit='seconds')
         self.oldest_basebackup = Gauge('walg_oldest_basebackup', 'oldest full backup',  unit='seconds')
         self.xlog_ready = Gauge('walg_missing_remote_wal_segment_at_end', 'Xlog ready for upload')
+
         self.exception = Gauge('walg_exception',
                                'Wal-g exception: '
                                '0 : no exception everything is OK, '
@@ -129,8 +138,8 @@ class Exporter():
                                '4 : remote is unreachable, '
                                '6 : no archives found in local & remote is unreachable.')
 
-        self.xlog_since_last_bb = Gauge('walg_xlogs_since_basebackup', 'Xlog uploaded since last base backup')
 
+        self.xlog_since_last_bb = Gauge('walg_xlogs_since_basebackup', 'Xlog uploaded since last base backup')
 
         self.last_backup_duration = Gauge('walg_last_backup_duration', 'Duration of the last full backup', unit='seconds')
 
@@ -139,7 +148,9 @@ class Exporter():
 
     def fetch_metrics(self):
 
+
         self.is_primary()
+
         self.update_basebackup()
         self.basebackup_count.set_function(lambda: len(self.bbs))
         if self.last_xlog_upload_callback is not None:
@@ -241,7 +252,9 @@ class Exporter():
                 host=os.getenv('PGHOST', '127.0.0.1'),
                 port=os.getenv('PGPORT', '5432'),
                 user=os.getenv('PGUSER', 'postgres'),
+
                 password=os.getenv('PGPASSWORD'),
+
                 dbname=os.getenv('PGDATABASE', 'postgres'),
 
         ) as db_connection:
@@ -260,6 +273,7 @@ class Exporter():
                             self.bbs[len(self.bbs) - 1]['wal_file_name'])
         else:
             return 0
+
 
     def flush_metrics(self):
 
@@ -321,6 +335,7 @@ if __name__ == '__main__':
 
     # The periodic interval to update basebackup metrics, defaults to 5 minutes
     update_basebackup_interval = float(os.getenv("UPDATE_BASEBACKUP_INTERVAL", "300"))
+
 
     ticker = threading.Event()
 
