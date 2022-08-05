@@ -103,7 +103,6 @@ def is_delta(bb):
     else:
         return 'full'
 
-
 class Exporter():
 
     def __init__(self):
@@ -115,6 +114,7 @@ class Exporter():
         self.archive_status = None
 
         # Declare metrics
+
         self.basebackup = Gauge('walg_basebackup', 'Remote Basebackups', ['start_wal_segment', 'start_lsn', 'backup', 'version'], unit='seconds')
         self.basebackup_count = Gauge('walg_basebackup_count', 'Remote Basebackups count', ['target'])
         self.last_upload = Gauge('walg_last_upload', 'Last upload of incremental or full backup', ['type', 'version'], unit='seconds')
@@ -127,6 +127,7 @@ class Exporter():
                                '2 : no archives found in local,  '
                                '3 : basebackup and xlog errors '
                                '4 : remote is unreachable, '
+
                                '6 : no archives found in local & remote is unreachable.', ['version'])
 
         self.xlog_since_last_bb = Gauge('walg_xlogs_since_basebackup', 'Xlog uploaded since last base backup', ['version'])
@@ -135,10 +136,10 @@ class Exporter():
         self.last_backup_duration = Gauge('walg_last_backup_duration', 'Duration of the last full backup', ['version'], unit='seconds')
 
         self.last_backup_size = Gauge('walg_last_backup_size', 'Size of last uploaded backup. Label compression="compressed" for  compressed size and compression="uncompressed" for uncompressed ', ['compression', 'version'], unit='bytes')
+
         self.fetch_metrics()
 
     def fetch_metrics(self):
-
         self.is_primary()
         self.update_basebackup()
         self.basebackup_count.labels('0.1.4').set_function(lambda: len(self.bbs))
@@ -155,6 +156,7 @@ class Exporter():
         self.last_backup_size.labels('compressed', '0.1.4').set_function(lambda: (self.bbs[len(self.bbs) - 1]['compressed_size'] if self.bbs else 0))
         self.last_backup_size.labels('uncompressed', '0.1.4').set_function(lambda: (self.bbs[len(self.bbs) - 1]['uncompressed_size'] if self.bbs else 0))
 
+
     def update_basebackup(self, *unused):
         try:
             # Fetch remote backup list
@@ -169,12 +171,15 @@ class Exporter():
             for bb in self.bbs:
                 if bb['backup_name'] not in new_bbs_name:
                     # Backup deleted
+
                     self.basebackup.remove(bb['wal_file_name'], bb['start_lsn'], is_delta(bb), '0.1.4')
+
                     bb_deleted = bb_deleted + 1
             # Add metrics for new backups
             for bb in new_bbs:
                 if bb['backup_name'] not in old_bbs_name:
                     (self.basebackup.labels(bb['wal_file_name'], bb['start_lsn'], is_delta(bb), '0.1.4')
+
                      .set(bb['start_time'].timestamp()))
             # Update backup list
             self.bbs = new_bbs
@@ -269,6 +274,7 @@ class Exporter():
         self.last_backup_size._metrics = {}
         self.basebackup._metrics = {}
 
+
     # Check if this is a master instance
     def is_primary(self):
         while True:
@@ -298,6 +304,8 @@ class Exporter():
                 error(f"Unable to connect to postgres server: {e}, retrying in 60sec...")
                 time.sleep(60)
 
+
+
 if __name__ == '__main__':
     info("Startup...")
     info('My PID is: %s', os.getpid())
@@ -311,6 +319,7 @@ if __name__ == '__main__':
 
     # The periodic interval to update basebackup metrics, defaults to 5 minutes
     update_basebackup_interval = float(os.getenv("UPDATE_BASEBACKUP_INTERVAL", "300"))
+
 
     ticker = threading.Event()
 
