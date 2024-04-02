@@ -1,4 +1,5 @@
 #boto3
+wheel
 prometheus_client
 psycopg2
 pyinstaller

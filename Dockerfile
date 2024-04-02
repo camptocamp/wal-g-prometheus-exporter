@@ -1,20 +1,24 @@
 # Build exporter
-FROM centos:7 AS exporter-builder
+FROM centos:8 AS exporter-builder
 
 WORKDIR /usr/src/
-ADD https://www.python.org/ftp/python/3.7.5/Python-3.7.5.tgz  /usr/src/
+ADD https://www.python.org/ftp/python/3.9.9/Python-3.9.9.tar.xz /usr/src/
+
+RUN sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*
+RUN sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
+RUN yum update -y
 RUN yum -y install curl make gcc openssl-devel bzip2-devel libffi-devel postgresql-devel
-RUN tar xzf Python-3.7.5.tgz && \
-    rm -fr Python-3.7.5.tgz && \
-    cd Python-3.7.5 && \
+
+RUN tar xvf Python-3.9.9.tar.xz && \
+    rm -fr Python-3.9.9.tar.xz && \
+    cd Python-3.9.9 && \
     ./configure --prefix=/usr --enable-optimizations --enable-shared && \
     make install -j 8 && \
     cd .. && \
-    rm -fr Python-3.7.5 && \
+    rm -fr Python-3.9.9 && \
     ldconfig && \
     curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py && \
     python3 get-pip.py
-
 COPY requirements.txt /usr/src/
 RUN pip3 install -r requirements.txt
 ADD exporter.py /usr/src/
